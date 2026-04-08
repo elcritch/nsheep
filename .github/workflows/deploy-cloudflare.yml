@@ -19,7 +19,7 @@ jobs:
         uses: alaviss/setup-nim@0.1.1
         with:
           path: 'nim'
-          version: 'version-2-0'
+          version: 'version-2-2'
 
       - name: Cache Nimble packages
         uses: actions/cache@v4

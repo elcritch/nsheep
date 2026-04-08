@@ -29,8 +29,8 @@ jobs:
       - name: Install dependencies
         run: nimble install -y --depsOnly
 
-      - name: Build nsheep CLI
-        run: nim c -d:release -o:nsheep src/nsheep.nim
+      - name: Build nsheep binaries
+        run: nimble build -d:release
 
       - name: Update popular packages
         env:

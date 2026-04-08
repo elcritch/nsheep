@@ -30,8 +30,8 @@ jobs:
       - name: Install dependencies
         run: nimble install -y --depsOnly
 
-      - name: Build release binary
-        run: nim c -d:release -o:nsheep src/nsheep.nim
+      - name: Build release binaries
+        run: nimble build -d:release
 
       - name: Deploy to staging server
         env:
@@ -69,8 +69,8 @@ jobs:
       - name: Install dependencies
         run: nimble install -y --depsOnly
 
-      - name: Build release binary
-        run: nim c -d:release -o:nsheep src/nsheep.nim
+      - name: Build release binaries
+        run: nimble build -d:release
 
       - name: Deploy to production server
         env:

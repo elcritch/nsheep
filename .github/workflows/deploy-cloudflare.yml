@@ -32,8 +32,8 @@ jobs:
       - name: Install dependencies
         run: nimble install -y --depsOnly
 
-      - name: Build release binary
-        run: nim c -d:release -d:strip -o:nsheep src/nsheep.nim
+      - name: Build release binaries
+        run: nimble build -d:release -d:strip
 
       - name: Upload to server via SSH
         uses: appleboy/scp-action@v0.1.7

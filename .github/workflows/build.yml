@@ -29,14 +29,16 @@ jobs:
       - name: Install dependencies
         run: nimble install -y --depsOnly
 
-      - name: Build release binary
-        run: nim c -d:release -d:strip -o:nsheep src/nsheep.nim
+      - name: Build release binaries
+        run: nimble build -d:release -d:strip
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nsheep
-          path: nsheep
+          name: nsheep-binaries
+          path: |
+            nsheep
+            nsheep-fetcher
 
   build-docker:
     runs-on: ubuntu-latest
@@ -62,19 +64,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: nsheep
+          name: nsheep-binaries
           path: dist/
 
-      - name: Make binary executable
-        run: chmod +x dist/nsheep
+      - name: Make binaries executable
+        run: chmod +x dist/nsheep dist/nsheep-fetcher
 
       - name: Create archive
         run: |
           cd dist
-          tar -czf nsheep-linux-amd64.tar.gz nsheep
+          tar -czf nsheep-linux-amd64.tar.gz nsheep nsheep-fetcher
           cd ..
 
       - name: Create Release

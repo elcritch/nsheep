@@ -37,8 +37,10 @@ jobs:
       - name: Run tests
         run: nimble test
 
-      - name: Build release binary
-        run: nim c -d:release -o:nsheep src/nsheep.nim
+      - name: Build release binaries
+        run: nimble build -d:release
 
-      - name: Test binary
-        run: ./nsheep --help
+      - name: Test binaries
+        run: |
+          ./nsheep --help
+          ./nsheep-fetcher --help

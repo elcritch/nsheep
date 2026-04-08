@@ -1,0 +1,32 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "workers": 4,
+    "maxBodySize": 10485760
+  },
+  "github": {
+    "token": "",
+    "apiUrl": "https://api.github.com",
+    "rateLimitBuffer": 100
+  },
+  "storage": {
+    "tarballDir": "./data/tarballs",
+    "metadataDir": "./data/metadata",
+    "cacheDir": "./data/cache"
+  },
+  "cache": {
+    "ttl": {
+      "package": 3600,
+      "index": 300,
+      "search": 600,
+      "github": 86400
+    },
+    "maxMemoryEntries": 10000
+  },
+  "registry": {
+    "name": "nsheep",
+    "url": "http://localhost:8080",
+    "syncInterval": 3600
+  }
+}

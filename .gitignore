@@ -1,0 +1,38 @@
+# Binaries
+nsheep
+*.exe
+*.dll
+*.so
+*.dylib
+nimble.paths
+# Nim
+nimcache/
+*.nim.log
+*.nims
+
+# Data
+data/
+*.tar.gz
+*.db
+
+# Config (contains credentials)
+cfg.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Build
+dist/
+build/

@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Nim
+        uses: alaviss/setup-nim@0.1.1
+        with:
+          path: 'nim'
+          version: 'version-2-0'
+
+      - name: Cache Nimble packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble
+          key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
+          restore-keys: |
+            ${{ runner.os }}-nimble-
+
+      - name: Install dependencies
+        run: nimble install -y --depsOnly
+
+      - name: Build release binary
+        run: nim c -d:release -d:strip -o:nsheep src/nsheep.nim
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsheep
+          path: nsheep
+
+  build-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: nsheep:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nsheep
+          path: dist/
+
+      - name: Make binary executable
+        run: chmod +x dist/nsheep
+
+      - name: Create archive
+        run: |
+          cd dist
+          tar -czf nsheep-linux-amd64.tar.gz nsheep
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

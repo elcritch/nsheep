@@ -1,0 +1,9 @@
+.git
+.gitignore
+README.md
+LICENSE
+ARCHITECTURE.md
+Makefile
+data/
+*.tar.gz
+nimcache/

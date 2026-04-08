@@ -1,0 +1,39 @@
+# Top Nim packages to ingest
+# Format: owner/repo
+
+# Core language packages
+nim-lang/Nim
+nim-lang/nimble
+nim-lang/packages
+
+# Popular libraries
+dom96/jester
+status-im/nim-json-rpc
+treeform/pixie
+flaviut/nre
+Araq/nimquery
+
+# Web frameworks
+planety/prologue
+ire4ever1190/mike
+enthus1ast/nimcommander
+
+# JSON handling
+treeform/jsony
+disruptek/frosty
+
+# Database
+nim-lang/db_connector
+moigagoo/norm
+
+# Testing
+status-im/nim-unittest2
+disruptek/balls
+
+# Async
+status-im/news
+status-im/chronos
+
+# Utilities
+jiro4989/nimjson
+casey-SO/pretty

@@ -1,0 +1,74 @@
+name: Update Package Index
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Nim
+        uses: alaviss/setup-nim@0.1.1
+        with:
+          path: 'nim'
+          version: 'version-2-0'
+
+      - name: Cache Nimble packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble
+          key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
+          restore-keys: |
+            ${{ runner.os }}-nimble-
+
+      - name: Install dependencies
+        run: nimble install -y --depsOnly
+
+      - name: Build nsheep CLI
+        run: nim c -d:release -o:nsheep src/nsheep.nim
+
+      - name: Update popular packages
+        env:
+          NSHEEP_API_URL: ${{ secrets.NSHEEP_API_URL }}
+          NSHEEP_API_TOKEN: ${{ secrets.NSHEEP_API_TOKEN }}
+        run: |
+          # Get list of popular packages (by stars)
+          curl -s "${NSHEEP_API_URL}/api/v1/packages?per_page=100" | \
+            jq -r '.packages | sort_by(.stars // 0) | reverse | .[:50] | .[].name' > popular-packages.txt
+          
+          # Update each package
+          while read -r pkg; do
+            echo "Updating $pkg..."
+            curl -s -X POST "${NSHEEP_API_URL}/api/v1/packages/$pkg/refresh" \
+              -H "Authorization: Bearer ${NSHEEP_API_TOKEN}" || true
+            sleep 2
+          done < popular-packages.txt
+
+      - name: Update all packages (weekly)
+        if: github.event.schedule == '0 0 * * 0' || github.event_name == 'workflow_dispatch'
+        env:
+          NSHEEP_API_URL: ${{ secrets.NSHEEP_API_URL }}
+          NSHEEP_API_TOKEN: ${{ secrets.NSHEEP_API_TOKEN }}
+        run: |
+          # Get all packages
+          curl -s "${NSHEEP_API_URL}/api/v1/packages?per_page=1000" | \
+            jq -r '.packages | .[].name' > all-packages.txt
+          
+          # Update each package
+          while read -r pkg; do
+            echo "Updating $pkg..."
+            curl -s -X POST "${NSHEEP_API_URL}/api/v1/packages/$pkg/refresh" \
+              -H "Authorization: Bearer ${NSHEEP_API_TOKEN}" || true
+            sleep 3
+          done < all-packages.txt
+
+      - name: Health check
+        env:
+          NSHEEP_API_URL: ${{ secrets.NSHEEP_API_URL }}
+        run: |
+          curl -sf "${NSHEEP_API_URL}/health" || exit 1

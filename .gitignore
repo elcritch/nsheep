@@ -1,5 +1,6 @@
 # Binaries
 nsheep
+nsheep-fetcher
 *.exe
 *.dll
 *.so

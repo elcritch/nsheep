@@ -1,12 +1,16 @@
-# Binaries
 *
 !**/
 !*.*
+
+nimble.paths
+
+# Binaries
+
 *.exe
 *.dll
 *.so
 *.dylib
-nimble.paths
+
 # Nim
 nimcache/
 *.nim.log

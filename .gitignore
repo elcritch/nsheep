@@ -5,10 +5,13 @@
 nimble.paths
 
 # Binaries
+nsheep
+nsheep-fetcher
 *.exe
 *.dll
 *.so
 *.dylib
+*.out
 
 # Nim
 nimcache/

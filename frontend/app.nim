@@ -349,7 +349,8 @@ proc renderHome(): VNode =
     tdiv(class="search-wrap"):
       input(class="search", id="search-input", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
         proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
-      tdiv(class="sort-label"): text "Recent published"
+      tdiv(class="sort-segment"):
+        button(class="sort-btn sort-active"): text "Recent published"
     if activeAuthor != "" or activeTag != "":
       tdiv(class="active-filters"):
         if activeAuthor != "":

@@ -137,6 +137,7 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
         "url": s.url,
         "tags": tags,
         "latestVersion": s.latestVersion,
+        "createdAt": s.createdAt,
         "updatedAt": s.updatedAt,
         "latestVersionPublishedAt": s.latestVersionPublishedAt
       })

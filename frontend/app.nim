@@ -15,6 +15,7 @@ type
     description: string
     author: string
     latestVersion: string
+    createdAt: string
     updatedAt: string
     latestVersionPublishedAt: string
     tags: seq[string]
@@ -150,6 +151,7 @@ proc fetchSummaries(page: int = 1) =
             description: if item.hasField("description"): $item["description"].getStr() else: "",
             author: if item.hasField("author"): $item["author"].getStr() else: "",
             latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+            createdAt: if item.hasField("createdAt"): $item["createdAt"].getStr() else: "",
             updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
             latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item["latestVersionPublishedAt"].getStr() else: "",
             tags: if item.hasField("tags"):
@@ -236,14 +238,14 @@ proc sortFiltered() =
   case currentSort
   of soPublishedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
+      if a.createdAt == "" and b.createdAt == "":
         0
-      elif a.latestVersionPublishedAt == "":
+      elif a.createdAt == "":
         1
-      elif b.latestVersionPublishedAt == "":
+      elif b.createdAt == "":
         -1
       else:
-        cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
+        cmp(b.createdAt, a.createdAt)
   of soUpdatedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
       if a.updatedAt == "" and b.updatedAt == "":
@@ -574,13 +576,22 @@ proc renderPackage(): VNode =
       if readmeContent != "":
         section(class="readme"):
           h2: text "README"
-          pre: text readmeContent
+          tdiv(class="readme-content", id="readme-content")
 
 proc renderNotFound(): VNode =
   buildHtml(tdiv(class="page notfound")):
     h1: text "404"
     p: text "Page not found."
     a(href="#/"): text "Return home"
+
+proc postRender() =
+  if readmeContent != "":
+    let el = kdom.document.getElementById(cstring"readme-content")
+    if el != nil:
+      let marked = cast[JsObject](kdom.window)["marked"]
+      if marked != nil:
+        let html = marked.parse(cstring(readmeContent))
+        cast[JsObject](el)["innerHTML"] = html
 
 proc render(): VNode =
   buildHtml(tdiv(class="app")):
@@ -599,7 +610,7 @@ proc render(): VNode =
 
 # --- Bootstrap ---
 
-setRenderer render
+setRenderer render, cstring"ROOT", postRender
 loadTheme()
 kdom.window.addEventListener("hashchange", onHashChange)
 kdom.document.addEventListener("keydown", onKeyDown)

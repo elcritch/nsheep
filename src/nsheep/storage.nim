@@ -188,13 +188,14 @@ type
     url*: string
     tags*: seq[string]
     latestVersion*: string
+    createdAt*: string
     updatedAt*: string
     latestVersionPublishedAt*: string
 
 proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
   ## List all packages with metadata and latest version
   for row in s.db.all("""
-    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.updated_at,
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.created_at, p.updated_at,
            v.major, v.minor, v.patch, v.published_at
     FROM packages p
     LEFT JOIN versions v ON v.id = (

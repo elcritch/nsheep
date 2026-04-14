@@ -24,6 +24,7 @@
   --fail-text: #991b1b;
   --copy-btn-bg: #2a2a2a;
   --copy-btn-text: #fff;
+  --skeleton-bg: #e5e2de;
 }
 
 [data-theme="dark"] {
@@ -45,6 +46,7 @@
   --fail-text: #fca5a5;
   --copy-btn-bg: #e8e8e8;
   --copy-btn-text: #121212;
+  --skeleton-bg: #333;
 }
 
 /* --- Reset & Base --- */
@@ -653,3 +655,37 @@ a:hover {
     align-self: center;
   }
 }
+
+/* --- Skeleton --- */
+
+.skeleton {
+  background: var(--skeleton-bg);
+  border-radius: 2px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sk-title { width: 120px; height: 1.25rem; }
+.sk-desc { width: 80%; height: 1rem; }
+.sk-meta { width: 60px; height: 0.8125rem; }
+.sk-badge { width: 50px; height: 0.75rem; }
+.sk-line { width: 100%; height: 1rem; }
+.sk-pill { width: 60px; height: 1.25rem; }
+
+.sk-search { width: 100%; max-width: 400px; height: 2.75rem; }
+.sk-back { width: 100px; height: 0.875rem; }
+.sk-header-title { width: 200px; height: 2rem; }
+.sk-install-code { width: 200px; height: 2.25rem; }
+.sk-install-btn { width: 60px; height: 2.25rem; }
+.sk-meta-label { width: 80px; height: 0.9375rem; }
+.sk-meta-value { width: 140px; height: 0.9375rem; }
+.sk-version-name { width: 80px; height: 0.9375rem; }
+.sk-version-size { width: 50px; height: 0.875rem; }
+.sk-version-badge { width: 50px; height: 0.875rem; }
+.sk-download { width: 70px; height: 0.8125rem; }
+.sk-mt05 { margin-top: 0.5rem; }
+.sk-w80 { width: 80px; }

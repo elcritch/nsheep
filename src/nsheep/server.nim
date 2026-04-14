@@ -100,8 +100,30 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
 
 proc handleListPackages(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
-    let summaries = listPackageSummaries(state.store)
-    
+    var page = 1
+    var limit = 50
+
+    try:
+      if "page" in request.queryParams:
+        page = parseInt(request.queryParams["page"])
+      if "limit" in request.queryParams:
+        limit = parseInt(request.queryParams["limit"])
+    except ValueError:
+      sendError(request, 400, "invalid_params", "page and limit must be integers")
+      return
+
+    if page < 1:
+      page = 1
+    if limit < 1:
+      limit = 1
+    elif limit > 200:
+      limit = 200
+
+    let offset = (page - 1) * limit
+
+    let summaries = listPackageSummariesPaged(state.store, offset, limit)
+    let total = countPackages(state.store)
+
     var arr = newJArray()
     for s in summaries:
       var tags = newJArray()
@@ -116,8 +138,15 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
         "tags": tags,
         "latestVersion": s.latestVersion
       })
-    
-    sendJson(request, arr, cacheSeconds = 300)  # 5 min cache
+
+    let body = %*{
+      "packages": arr,
+      "total": total,
+      "page": page,
+      "limit": limit
+    }
+
+    sendJson(request, body, cacheSeconds = 0)
 
 proc handleValidations(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =

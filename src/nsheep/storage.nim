@@ -225,6 +225,51 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
       latestVersion: latestVersion
     ))
 
+proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSummary] =
+  ## List packages with metadata and latest version, paginated
+  for row in s.db.all("""
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags,
+           v.major, v.minor, v.patch
+    FROM packages p
+    LEFT JOIN versions v ON v.id = (
+      SELECT id FROM versions
+      WHERE package_id = p.id
+      ORDER BY major DESC, minor DESC, patch DESC
+      LIMIT 1
+    )
+    ORDER BY p.name
+    LIMIT ? OFFSET ?
+  """, limit.int64, offset.int64):
+    var tags: seq[string] = @[]
+    let tagsStr = row[5].strVal
+    try:
+      let tagsJson = parseJson(tagsStr)
+      tags = tagsJson.getElems().mapIt(it.getStr())
+    except:
+      discard
+
+    var latestVersion = ""
+    if row[6].kind != sqliteNull:
+      latestVersion = $row[6].intVal & "." & $row[7].intVal & "." & $row[8].intVal
+
+    result.add(PackageSummary(
+      name: row[0].strVal,
+      description: row[1].strVal,
+      author: row[2].strVal,
+      license: row[3].strVal,
+      url: row[4].strVal,
+      tags: tags,
+      latestVersion: latestVersion
+    ))
+
+proc countPackages*(s: DbStorage): int =
+  ## Return total number of packages
+  let row = s.db.one("SELECT COUNT(*) FROM packages")
+  if row.isSome:
+    result = row.get()[0].intVal.int
+  else:
+    result = 0
+
 # --- Version/Tarball Operations ---
 
 proc tarballPath*(s: DbStorage, pkgName: PackageName, ver: SemVer): string =

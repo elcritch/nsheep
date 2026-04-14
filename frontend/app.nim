@@ -61,10 +61,12 @@ var
   searchTimer: JsObject = nil
   errorMessage = ""
   currentSort = soNameAsc
+  totalPackages = 0
+  currentPage = 1
 
 # --- Forward Declarations ---
 
-proc fetchSummaries()
+proc fetchSummaries(page: int = 1)
 proc fetchDetail(name: string)
 proc fetchValidations(name: string)
 proc fetchReadme(name: string)
@@ -132,24 +134,33 @@ proc fetchText(url: cstring, cont: proc(text: string)) =
         cont("")
   req.send("")
 
-proc fetchSummaries() =
+proc fetchSummaries(page: int = 1) =
   loading = true
   errorMessage = ""
-  fetchJson(cstring"/api/v1/packages",
+  let url = "/api/v1/packages?page=" & $page & "&limit=" & $pageSize
+  fetchJson(cstring(url),
     proc (data: JsonNode) =
       loading = false
-      summaries = @[]
-      for item in data:
-        summaries.add(PackageSummary(
-          name: $item["name"].getStr(),
-          description: if item.hasField("description"): $item["description"].getStr() else: "",
-          author: if item.hasField("author"): $item["author"].getStr() else: "",
-          latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
-          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item["latestVersionPublishedAt"].getStr() else: "",
-          tags: if item.hasField("tags"):
-            (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
-          else: @[]
-        ))
+      var newItems: seq[PackageSummary] = @[]
+      if data.hasField("packages"):
+        for item in data["packages"]:
+          newItems.add(PackageSummary(
+            name: $item["name"].getStr(),
+            description: if item.hasField("description"): $item["description"].getStr() else: "",
+            author: if item.hasField("author"): $item["author"].getStr() else: "",
+            latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+            latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item["latestVersionPublishedAt"].getStr() else: "",
+            tags: if item.hasField("tags"):
+              (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
+            else: @[]
+          ))
+      if data.hasField("total"):
+        totalPackages = data["total"].getInt()
+      currentPage = page
+      if page == 1:
+        summaries = newItems
+      else:
+        summaries.add(newItems)
       applyFilters()
       redraw(),
     "Failed to load packages. Please try again."
@@ -257,7 +268,7 @@ proc applyFilters() =
     if matches:
       filtered.add(s)
   sortFiltered()
-  displayedCount = min(pageSize, filtered.len)
+  displayedCount = filtered.len
 
 # --- Event Handlers ---
 
@@ -373,7 +384,19 @@ proc renderHome(): VNode =
         if activeAuthor != "" or activeTag != "":
           button(class="clear-all", onclick=proc() = clearAllFilters()): text "Clear all"
     if loading:
-      tdiv(class="status"): text "Loading…"
+      tdiv(class="home-skeleton"):
+        tdiv(class="search-wrap"):
+          tdiv(class="skeleton sk-search")
+        tdiv(class="package-list"):
+          for i in 1..5:
+            article(class="package-item"):
+              header(class="package-header"):
+                tdiv(class="skeleton sk-title")
+                tdiv(class="skeleton sk-badge")
+              tdiv(class="package-desc"):
+                tdiv(class="skeleton sk-desc")
+              tdiv(class="package-meta"):
+                tdiv(class="skeleton sk-meta")
     elif errorMessage != "":
       tdiv(class="error-status"):
         p: text errorMessage
@@ -397,12 +420,11 @@ proc renderHome(): VNode =
                 text "By "
                 let author = s.author
                 a(href="#/", class="inline-link", onclick=proc() = clickAuthor(author)): text author
-      if displayedCount < filtered.len:
+      if summaries.len < totalPackages:
         tdiv(class="load-more-wrap"):
           button(class="load-more-btn", onclick=proc() =
-            displayedCount = min(filtered.len, displayedCount + pageSize)
-            redraw()
-          ): text ("Load more (" & $displayedCount & " of " & $filtered.len & ")")
+            fetchSummaries(currentPage + 1)
+          ): text ("Load more (" & $summaries.len & " of " & $totalPackages & ")")
 
 proc formatSize(bytes: int): string =
   if bytes < 1024:
@@ -447,7 +469,34 @@ proc renderPackage(): VNode =
   buildHtml(tdiv(class="page package-detail")):
     a(href="#/", class="back-link"): text "← All packages"
     if loading:
-      tdiv(class="status"): text "Loading…"
+      tdiv(class="package-skeleton"):
+        tdiv(class="back-link"):
+          tdiv(class="skeleton sk-back")
+        header(class="detail-header"):
+          tdiv(class="skeleton sk-header-title")
+          tdiv(class="skeleton sk-badge")
+        tdiv(class="install-command"):
+          tdiv(class="skeleton sk-install-code")
+          tdiv(class="skeleton sk-install-btn")
+        tdiv(class="detail-desc"):
+          tdiv(class="skeleton sk-line")
+          tdiv(class="skeleton sk-line sk-mt05")
+        dl(class="detail-meta"):
+          for i in 1..3:
+            dt: tdiv(class="skeleton sk-meta-label")
+            dd: tdiv(class="skeleton sk-meta-value")
+        tdiv(class="tags"):
+          for i in 1..3:
+            tdiv(class="skeleton sk-pill")
+        section(class="versions"):
+          h2:
+            tdiv(class="skeleton sk-title sk-w80")
+          for i in 1..4:
+            tdiv(class="version-row"):
+              tdiv(class="skeleton sk-version-name")
+              tdiv(class="skeleton sk-version-size")
+              tdiv(class="skeleton sk-version-badge")
+              tdiv(class="skeleton sk-download")
     elif errorMessage != "":
       tdiv(class="error-status"):
         p: text errorMessage

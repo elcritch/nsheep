@@ -8,7 +8,7 @@ type
     vHome, vPackage, vNotFound
 
   SortOrder = enum
-    soNameAsc, soNameDesc, soUpdatedDesc
+    soUpdatedDesc, soUpdatedAsc
 
   PackageSummary = object
     name: string
@@ -60,7 +60,7 @@ var
   displayedCount = 0
   searchTimer: JsObject = nil
   errorMessage = ""
-  currentSort = soNameAsc
+  currentSort = soUpdatedDesc
   totalPackages = 0
   currentPage = 1
 
@@ -232,22 +232,26 @@ proc fetchDetail(name: string) =
 
 proc sortFiltered() =
   case currentSort
-  of soNameAsc:
-    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      cmp(a.name.toLowerAscii(), b.name.toLowerAscii())
-  of soNameDesc:
-    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      cmp(b.name.toLowerAscii(), a.name.toLowerAscii())
   of soUpdatedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
       if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
-        cmp(a.name.toLowerAscii(), b.name.toLowerAscii())
+        0
       elif a.latestVersionPublishedAt == "":
         1
       elif b.latestVersionPublishedAt == "":
         -1
       else:
         cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
+  of soUpdatedAsc:
+    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+      if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
+        0
+      elif a.latestVersionPublishedAt == "":
+        -1
+      elif b.latestVersionPublishedAt == "":
+        1
+      else:
+        cmp(a.latestVersionPublishedAt, b.latestVersionPublishedAt)
 
 proc applyFilters() =
   let q = searchQuery.toLowerAscii()
@@ -361,18 +365,17 @@ proc renderHome(): VNode =
     tdiv(class="search-wrap"):
       input(class="search", id="search-input", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
         proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
-      select(class="sort-select", onchange=proc(ev: Event; target: VNode) =
-        let val = $cast[cstring](cast[JsObject](ev.target)["value"])
-        case val
-        of "name-desc": currentSort = soNameDesc
-        of "updated-desc": currentSort = soUpdatedDesc
-        else: currentSort = soNameAsc
-        applyFilters()
-        redraw()
-      ):
-        option(value="name-asc", selected=currentSort == soNameAsc): text "Name A–Z"
-        option(value="name-desc", selected=currentSort == soNameDesc): text "Name Z–A"
-        option(value="updated-desc", selected=currentSort == soUpdatedDesc): text "Recently updated"
+      tdiv(class="sort-segment"):
+        button(class=cstring("sort-btn " & (if currentSort == soUpdatedDesc: "sort-active" else: "")), onclick=proc() =
+          currentSort = soUpdatedDesc
+          applyFilters()
+          redraw()
+        ): text "Recently updated"
+        button(class=cstring("sort-btn " & (if currentSort == soUpdatedAsc: "sort-active" else: "")), onclick=proc() =
+          currentSort = soUpdatedAsc
+          applyFilters()
+          redraw()
+        ): text "Oldest first"
     if activeAuthor != "" or activeTag != "":
       tdiv(class="active-filters"):
         if activeAuthor != "":

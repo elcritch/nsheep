@@ -321,21 +321,38 @@ a:hover {
   opacity: 0.7;
 }
 
-.sort-select {
+.sort-segment {
+  display: inline-flex;
+}
+
+.sort-btn {
   padding: 0.625rem 0.875rem;
   font-size: 1rem;
   font-family: inherit;
-  color: var(--text);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-secondary);
   background: var(--surface);
   border: 1px solid var(--border-input);
-  border-radius: 0;
-  outline: none;
   cursor: pointer;
-  transition: border-color 0.12s ease-out;
+  transition: color 0.12s ease-out, border-color 0.12s ease-out, background 0.12s ease-out;
 }
 
-.sort-select:focus {
-  border-color: var(--accent);
+.sort-btn:first-child {
+  border-right: none;
+}
+
+.sort-btn:hover,
+.sort-btn:focus-visible {
+  color: var(--text);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+.sort-active {
+  color: var(--text);
+  background: var(--code-bg);
 }
 
 /* --- Status / Empty --- */

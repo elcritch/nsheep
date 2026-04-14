@@ -589,9 +589,27 @@ proc postRender() =
     let el = kdom.document.getElementById(cstring"readme-content")
     if el != nil:
       let marked = cast[JsObject](kdom.window)["marked"]
-      if marked != nil:
-        let html = marked.parse(cstring(readmeContent))
-        cast[JsObject](el)["innerHTML"] = html
+      let purify = cast[JsObject](kdom.window)["DOMPurify"]
+      if marked != nil and purify != nil:
+        let renderer = marked.Renderer.new()
+        let codeRenderer = proc(code: cstring, lang: cstring): cstring =
+          let language = if lang == nil or $lang == "": cstring"text" else: lang
+          let prism = cast[JsObject](kdom.window)["Prism"]
+          if prism != nil:
+            let grammar = prism.languages[language]
+            if grammar != nil:
+              let highlighted = prism.highlight(code, grammar, language)
+              return cstring("<pre><code class=\"language-" & $language & "\">" & $cast[cstring](highlighted) & "</code></pre>")
+          cstring("<pre><code class=\"language-" & $language & "\">" & $code & "</code></pre>")
+        cast[JsObject](renderer)["code"] = codeRenderer
+
+        let rawHtml = marked.parse(cstring(readmeContent), %*{"renderer": renderer})
+        let safeHtml = purify.sanitize(rawHtml)
+        cast[JsObject](el)["innerHTML"] = safeHtml
+
+        let prism = cast[JsObject](kdom.window)["Prism"]
+        if prism != nil:
+          discard prism.highlightAllUnder(el)
 
 proc render(): VNode =
   buildHtml(tdiv(class="app")):

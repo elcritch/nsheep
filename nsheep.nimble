@@ -15,6 +15,7 @@ requires "puppy >= 2.1.0"
 requires "chronicles >= 0.10.0"
 requires "yaml >= 2.0.0"
 requires "tiny_sqlite >= 0.2.0"
+requires "karax >= 1.3.0"
 
 
 task test, "Run tests":

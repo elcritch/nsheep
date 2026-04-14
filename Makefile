@@ -5,12 +5,19 @@
 # Default target
 all: build
 
+# Build frontend assets
+frontend:
+	mkdir -p public
+	nim js -d:release -o:public/app.js frontend/app.nim
+	cp frontend/index.html public/
+	cp frontend/app.css public/
+
 # Build debug version
-build:
+build: frontend
 	nim c -o:nsheep src/nsheep.nim
 
 # Build release version
-release:
+release: frontend
 	nim c -d:release -o:nsheep src/nsheep.nim
 
 # Build with optimization
@@ -26,6 +33,7 @@ clean:
 	rm -f nsheep
 	rm -rf nimcache
 	rm -rf dist
+	rm -rf public
 
 # Install dependencies
 install:

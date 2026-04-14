@@ -1,0 +1,519 @@
+/*
+ * NSheep Frontend — Swiss Engineering
+ * Brutally minimal, fast, precise.
+ */
+
+/* --- Reset & Base --- */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background-color: #faf8f5;
+  color: #2a2a2a;
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+a {
+  color: #c41e3a;
+  text-decoration: none;
+  transition: opacity 0.12s ease-out;
+}
+
+a:hover {
+  opacity: 0.7;
+}
+
+/* --- Layout --- */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  background: #faf8f5;
+  border-bottom: 1px solid #e5e2de;
+  padding: 1rem 0;
+  z-index: 10;
+}
+
+.header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.logo {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #2a2a2a;
+}
+
+.logo:hover {
+  opacity: 1;
+  color: #c41e3a;
+}
+
+.site-main {
+  flex: 1;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+.page {
+  animation: fadeIn 0.25s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* --- Search --- */
+
+.search-wrap {
+  margin-bottom: 2.5rem;
+}
+
+.search {
+  width: 100%;
+  max-width: 400px;
+  padding: 0.625rem 0.875rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: #2a2a2a;
+  background: #fff;
+  border: 1px solid #d8d4cf;
+  border-radius: 0;
+  outline: none;
+  transition: border-color 0.12s ease-out;
+}
+
+.search::placeholder {
+  color: #9a9590;
+}
+
+.search:focus {
+  border-color: #c41e3a;
+}
+
+/* --- Package List --- */
+
+.package-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.package-item {
+  padding-bottom: 2rem;
+  border-bottom: 1px solid #e5e2de;
+}
+
+.package-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.375rem;
+}
+
+.package-header h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.package-header h2 a {
+  color: #2a2a2a;
+}
+
+.package-header h2 a:hover {
+  color: #c41e3a;
+  opacity: 1;
+}
+
+.version-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #c41e3a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.package-desc {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  color: #454545;
+  max-width: 600px;
+  margin-bottom: 0.25rem;
+}
+
+.package-meta {
+  font-size: 0.8125rem;
+  color: #6e6a65;
+}
+
+.package-meta .inline-link {
+  color: #6e6a65;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.package-meta .inline-link:hover {
+  color: #c41e3a;
+  opacity: 1;
+}
+
+/* --- Active Filters --- */
+
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid #d8d4cf;
+  background: #fff;
+}
+
+.author-badge {
+  color: #2a2a2a;
+}
+
+.tag-badge {
+  color: #2a2a2a;
+}
+
+.clear-btn {
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: #6e6a65;
+  cursor: pointer;
+  width: 1.125rem;
+  height: 1.125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clear-btn:hover {
+  color: #c41e3a;
+}
+
+.clear-all {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #c41e3a;
+  background: transparent;
+  border: none;
+  padding: 0.25rem 0;
+  margin-left: 0.25rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clear-all:hover {
+  opacity: 0.7;
+}
+
+/* --- Status / Empty --- */
+
+.status {
+  font-size: 0.9375rem;
+  color: #6e6a65;
+  margin-top: 1rem;
+}
+
+/* --- Package Detail --- */
+
+.back-link {
+  display: inline-block;
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+  color: #6e6a65;
+}
+
+.back-link:hover {
+  color: #c41e3a;
+  opacity: 1;
+}
+
+.detail-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.detail-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #2a2a2a;
+}
+
+.install-command {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  font-family: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9375rem;
+}
+
+.install-command code {
+  display: inline-flex;
+  align-items: center;
+  background: #f0ede9;
+  padding: 0.5rem 0.875rem;
+  color: #2a2a2a;
+  border: 1px solid #e5e2de;
+  line-height: 1.25;
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  background: #2a2a2a;
+  border: 1px solid transparent;
+  padding: 0.5rem 0.875rem;
+  cursor: pointer;
+  transition: background 0.12s ease-out;
+  min-width: 4.5rem;
+  line-height: 1.25;
+}
+
+.copy-btn:hover {
+  background: #c41e3a;
+}
+
+.detail-desc {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.0625rem;
+  color: #454545;
+  max-width: 640px;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
+}
+
+.detail-meta {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.9375rem;
+}
+
+.detail-meta dt {
+  color: #6e6a65;
+  font-weight: 500;
+}
+
+.detail-meta dd {
+  color: #2a2a2a;
+}
+
+.detail-meta dd a {
+  word-break: break-all;
+}
+
+/* --- Tags --- */
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6e6a65;
+  background: #f0ede9;
+  padding: 0.25rem 0.625rem;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s ease-out, color 0.12s ease-out;
+}
+
+.tag:hover {
+  background: #e5e1db;
+  color: #c41e3a;
+  opacity: 1;
+}
+
+/* --- Versions --- */
+
+.versions h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #2a2a2a;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #2a2a2a;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #e5e2de;
+  font-size: 0.9375rem;
+}
+
+.version-name {
+  font-weight: 600;
+  color: #2a2a2a;
+  flex: 0 0 120px;
+}
+
+.version-size {
+  color: #6e6a65;
+  font-size: 0.875rem;
+  flex: 0 0 auto;
+  min-width: 60px;
+}
+
+.validation-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.125rem 0.5rem;
+  flex: 0 0 auto;
+}
+
+.val-pass {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.val-fail {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.download-link {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #c41e3a;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.375rem 0;
+  margin-left: auto;
+}
+
+.download-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* --- 404 --- */
+
+.notfound h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.5rem;
+}
+
+.notfound p {
+  color: #6e6a65;
+  margin-bottom: 1.5rem;
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 520px) {
+  .site-main {
+    padding: 2rem 1rem 3rem;
+  }
+
+  .detail-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .detail-meta {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+
+  .detail-meta dt {
+    margin-top: 0.5rem;
+  }
+
+  .version-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem 1rem;
+  }
+
+  .version-name {
+    flex: initial;
+    grid-column: 1 / 2;
+  }
+
+  .version-size {
+    flex: initial;
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+  }
+
+  .validation-badge {
+    flex: initial;
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    justify-self: start;
+  }
+
+  .download-link {
+    margin-left: initial;
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    justify-self: end;
+    align-self: center;
+  }
+}

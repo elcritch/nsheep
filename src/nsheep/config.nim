@@ -13,6 +13,7 @@ type
   ServerConfig* = object
     bindAddr*: string
     port*: int
+    publicDir*: string
 
   GitHubConfig* = object
     token*: string
@@ -70,6 +71,9 @@ proc validate(cfg: Config) =
   if cfg.server.bindAddr.len == 0:
     raise newException(ValueError, "bind address cannot be empty")
   
+  if cfg.server.publicDir.len == 0:
+    raise newException(ValueError, "server.publicDir cannot be empty")
+  
   case cfg.storage
   of sbLocal:
     if cfg.local.dbPath.len == 0:
@@ -116,6 +120,11 @@ proc loadConfig*(path: string): Config =
   if fetcherConfig.interval == 0:
     fetcherConfig.interval = 3600  # 1 hour default
   
+  # Set server defaults
+  var serverConfig = raw.server
+  if serverConfig.publicDir == "":
+    serverConfig.publicDir = "./public"
+  
   # Set validator defaults
   var validatorConfig = raw.validator
   if validatorConfig.dockerImage == "":
@@ -125,7 +134,7 @@ proc loadConfig*(path: string): Config =
   
   # Build final config
   var cfg = Config(
-    server: raw.server,
+    server: serverConfig,
     github: raw.github,
     local: raw.local,
     cloudflare: raw.cloudflare,

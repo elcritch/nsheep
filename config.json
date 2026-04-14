@@ -1,32 +1,34 @@
 {
   "server": {
-    "host": "0.0.0.0",
+    "bindAddr": "127.0.0.1",
     "port": 8080,
-    "workers": 4,
-    "maxBodySize": 10485760
+    "publicDir": "./public"
   },
   "github": {
-    "token": "",
-    "apiUrl": "https://api.github.com",
-    "rateLimitBuffer": 100
+    "token": ""
   },
-  "storage": {
-    "tarballDir": "./data/tarballs",
-    "metadataDir": "./data/metadata",
-    "cacheDir": "./data/cache"
+  "local": {
+    "dbPath": "./data/nsheep.db",
+    "tarballDir": "./data/tarballs"
   },
-  "cache": {
-    "ttl": {
-      "package": 3600,
-      "index": 300,
-      "search": 600,
-      "github": 86400
-    },
-    "maxMemoryEntries": 10000
+  "cloudflare": {
+    "accountId": "",
+    "r2AccessKeyId": "",
+    "r2SecretKey": "",
+    "r2Bucket": "nsheep-packages",
+    "kvNamespaceId": "",
+    "apiToken": ""
   },
-  "registry": {
-    "name": "nsheep",
-    "url": "http://localhost:8080",
-    "syncInterval": 3600
-  }
+  "fetcher": {
+    "interval": 3600,
+    "maxPackages": 0,
+    "filterPatterns": []
+  },
+  "validator": {
+    "enabled": false,
+    "dockerImage": "nimlang/nim:latest",
+    "timeout": 300,
+    "required": false
+  },
+  "storage": "local"
 }

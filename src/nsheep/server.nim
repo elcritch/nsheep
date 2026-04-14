@@ -3,7 +3,7 @@
 ## No async - one thread per request is fine for this workload
 ##
 
-import std/[json, strutils, options, times]
+import std/[json, strutils, options, times, os]
 import mummy, mummy/routers
 import chronicles
 import nsheep/[types, storage, github, config]
@@ -100,13 +100,48 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
 
 proc handleListPackages(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
-    let names = listPackages(state.store)
+    let summaries = listPackageSummaries(state.store)
     
     var arr = newJArray()
-    for name in names:
-      arr.add(% $name)
+    for s in summaries:
+      var tags = newJArray()
+      for t in s.tags:
+        tags.add(% t)
+      arr.add(%*{
+        "name": s.name,
+        "description": s.description,
+        "author": s.author,
+        "license": s.license,
+        "url": s.url,
+        "tags": tags,
+        "latestVersion": s.latestVersion
+      })
     
     sendJson(request, arr, cacheSeconds = 300)  # 5 min cache
+
+proc handleValidations(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    let nameStr = request.pathParams["name"]
+    
+    # Parse name
+    let name = try:
+      initPackageName(nameStr)
+    except ValueError as e:
+      sendError(request, 400, "invalid_name", e.msg)
+      return
+    
+    # Load validations
+    let results = getLatestValidationResults(state.store, nameStr)
+    
+    var arr = newJArray()
+    for r in results:
+      arr.add(%*{
+        "version": r.version,
+        "success": r.success,
+        "testedAt": $r.testedAt
+      })
+    
+    sendJson(request, arr, cacheSeconds = 300)
 
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
@@ -151,6 +186,30 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
     
     request.respond(200, headers, strData)
 
+# --- Static Files ---
+
+proc serveStaticFile(state: ptr ServerState, fileName: string): RequestHandler =
+  result = proc(request: Request) =
+    let filePath = state.cfg.server.publicDir / fileName
+    if not fileExists(filePath):
+      request.respond(404, emptyHttpHeaders(), "not found")
+      return
+    
+    let ext = splitFile(filePath).ext
+    let contentType = case ext
+    of ".js": "application/javascript"
+    of ".css": "text/css"
+    of ".html": "text/html"
+    else: "application/octet-stream"
+    
+    let data = readFile(filePath)
+    var headers = emptyHttpHeaders()
+    headers["Content-Type"] = contentType
+    request.respond(200, headers, data)
+
+proc serveIndex(state: ptr ServerState): RequestHandler =
+  result = serveStaticFile(state, "index.html")
+
 # --- Setup ---
 
 proc setupRoutes*(router: var Router, state: ptr ServerState) =
@@ -158,7 +217,13 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages", handleListPackages(state))
   router.get("/api/v1/packages/@name", handleGetPackage(state))
   # Note: Ingestion is now handled automatically by background fetcher
+  router.get("/api/v1/packages/@name/validations", handleValidations(state))
   router.get("/download/@name/@version", handleDownload(state))
+  
+  # Static frontend assets
+  router.get("/", serveIndex(state))
+  router.get("/app.js", serveStaticFile(state, "app.js"))
+  router.get("/app.css", serveStaticFile(state, "app.css"))
   
   # CORS preflight
   router.options("/*", proc(request: Request) =

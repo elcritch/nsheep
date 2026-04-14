@@ -113,7 +113,7 @@ proc storePackage*(s: DbStorage, pkg: Package) =
 proc loadPackage*(s: DbStorage, name: PackageName): Package =
   ## Load package by name
   let row = s.db.one("""
-    SELECT name, description, author, license, url, tags
+    SELECT name, description, author, license, url, tags, created_at, updated_at
     FROM packages WHERE name = ?
   """, name.string)
   
@@ -133,11 +133,87 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     result.tags = tagsJson.getElems().mapIt(it.getStr())
   except:
     result.tags = @[]
+  
+  # Parse timestamps
+  try:
+    result.createdAt = parse(r[6].strVal, "yyyy-MM-dd HH:mm:ss")
+  except:
+    result.createdAt = now()
+  try:
+    result.updatedAt = parse(r[7].strVal, "yyyy-MM-dd HH:mm:ss")
+  except:
+    result.updatedAt = now()
+  
+  # Load versions
+  for vrow in s.db.all("""
+    SELECT major, minor, patch, tarball_path, tarball_size, checksum, published_at
+    FROM versions
+    WHERE package_id = (SELECT id FROM packages WHERE name = ?)
+    ORDER BY major DESC, minor DESC, patch DESC
+  """, name.string):
+    let ver = initSemVer(vrow[0].intVal.int, vrow[1].intVal.int, vrow[2].intVal.int)
+    let checksum = initChecksum(vrow[5].strVal)
+    let publishedAt = try: parse(vrow[6].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
+    result.versions.add(PackageVersion(
+      version: ver,
+      tarballPath: vrow[3].strVal,
+      checksum: checksum,
+      size: vrow[4].intVal,
+      publishedAt: publishedAt
+    ))
 
 proc listPackages*(s: DbStorage): seq[PackageName] =
   ## List all package names
   for row in s.db.all("SELECT name FROM packages ORDER BY name"):
     result.add(initPackageName(row[0].strVal))
+
+# --- Summary Operations ---
+
+type
+  PackageSummary* = object
+    name*: string
+    description*: string
+    author*: string
+    license*: string
+    url*: string
+    tags*: seq[string]
+    latestVersion*: string
+
+proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
+  ## List all packages with metadata and latest version
+  for row in s.db.all("""
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags,
+           v.major, v.minor, v.patch
+    FROM packages p
+    LEFT JOIN versions v ON v.id = (
+      SELECT id FROM versions
+      WHERE package_id = p.id
+      ORDER BY major DESC, minor DESC, patch DESC
+      LIMIT 1
+    )
+    ORDER BY p.name
+  """):
+    var tags: seq[string] = @[]
+    let tagsStr = row[5].strVal
+    try:
+      let tagsJson = parseJson(tagsStr)
+      tags = tagsJson.getElems().mapIt(it.getStr())
+    except:
+      discard
+
+    var latestVersion = ""
+    if row[6].kind != sqliteNull:
+      latestVersion = $row[6].intVal & "." & $row[7].intVal & "." & $row[8].intVal
+
+    result.add(PackageSummary(
+      name: row[0].strVal,
+      description: row[1].strVal,
+      author: row[2].strVal,
+      license: row[3].strVal,
+      url: row[4].strVal,
+      tags: tags,
+      latestVersion: latestVersion
+    ))
 
 # --- Version/Tarball Operations ---
 

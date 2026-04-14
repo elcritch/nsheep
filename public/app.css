@@ -699,7 +699,7 @@ a:hover {
   margin-bottom: 0.25rem;
 }
 
-.readme-content code {
+.readme-content code:not([class*="language-"]) {
   font-family: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 0.85em;
   background: var(--code-bg);
@@ -707,7 +707,7 @@ a:hover {
   border-radius: 3px;
 }
 
-.readme-content pre {
+.readme-content pre:not([class*="language-"]) {
   background: var(--code-bg);
   border: 1px solid var(--border);
   padding: 1rem;
@@ -715,10 +715,21 @@ a:hover {
   margin-bottom: 1rem;
 }
 
-.readme-content pre code {
+.readme-content pre:not([class*="language-"]) code {
   background: transparent;
   padding: 0;
   border-radius: 0;
+  font-size: 0.875rem;
+}
+
+.readme-content pre[class*="language-"] {
+  margin-bottom: 1rem;
+  border-radius: 0;
+  border: 1px solid var(--border);
+}
+
+.readme-content code[class*="language-"] {
+  font-family: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 0.875rem;
 }
 

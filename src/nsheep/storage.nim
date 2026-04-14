@@ -67,11 +67,22 @@ CREATE TABLE IF NOT EXISTS download_stats (
     UNIQUE(package_name, version)
 );
 
+-- README contents per version
+CREATE TABLE IF NOT EXISTS readmes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    content TEXT NOT NULL,
+    fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(package_name, version)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_packages_name ON packages(name);
 CREATE INDEX IF NOT EXISTS idx_versions_package ON versions(package_id);
 CREATE INDEX IF NOT EXISTS idx_validation_package ON validation_results(package_name);
 CREATE INDEX IF NOT EXISTS idx_downloads_package ON download_stats(package_name);
+CREATE INDEX IF NOT EXISTS idx_readmes_package ON readmes(package_name);
 """
 
 # --- Types ---
@@ -438,3 +449,25 @@ proc getTotalDownloads*(s: DbStorage, pkgName: string): int =
     result = row.get()[0].intVal.int
   else:
     result = 0
+
+# --- README Operations ---
+
+proc storeReadme*(s: DbStorage, pkgName: string, version: string, content: string) =
+  ## Store or update a README for a specific package version
+  s.db.exec("""
+    INSERT INTO readmes (package_name, version, content, fetched_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(package_name, version) DO UPDATE SET
+      content = excluded.content,
+      fetched_at = datetime('now')
+  """, pkgName, version, content)
+
+proc loadReadme*(s: DbStorage, pkgName: string, version: string): string =
+  ## Load README for a specific package version
+  let row = s.db.one("""
+    SELECT content FROM readmes
+    WHERE package_name = ? AND version = ?
+  """, pkgName, version)
+  if row.isNone:
+    raise newException(NotFoundError, "readme not found: " & pkgName & "@" & version)
+  result = row.get()[0].strVal

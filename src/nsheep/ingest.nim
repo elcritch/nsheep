@@ -135,6 +135,17 @@ proc ingest*(
   # 6. Persist
   storePackage(store, pkg)
   
+  # 7. Fetch and store READMEs for each version
+  for rel in releases:
+    let optVer = parseSemVer(rel.tag)
+    if optVer.isNone:
+      continue
+    let ver = optVer.get()
+    let readmeContent = fetchReadme(gh, repo.owner, repo.name, rel.tag)
+    if readmeContent != "":
+      let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
+      storeReadme(store, pkg.name.string, versionStr, readmeContent)
+  
   info "Ingestion complete", package = $pkg.name, versions = pkg.versions.len
   result = pkg
 

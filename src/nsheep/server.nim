@@ -18,10 +18,16 @@ type
 
 # --- Helpers ---
 
+proc addSecurityHeaders(headers: var HttpHeaders) =
+  headers["X-Content-Type-Options"] = "nosniff"
+  headers["X-Frame-Options"] = "DENY"
+  headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
 proc sendError(request: Request, status: int, error, message: string) =
   var headers = emptyHttpHeaders()
   headers["Content-Type"] = "application/json"
   headers["Cache-Control"] = "no-store"
+  addSecurityHeaders(headers)
   
   let body = %*{
     "error": error,
@@ -35,6 +41,7 @@ proc sendJson(request: Request, data: JsonNode, cacheSeconds: int = 0) =
   var headers = emptyHttpHeaders()
   headers["Content-Type"] = "application/json"
   headers["Access-Control-Allow-Origin"] = "*"
+  addSecurityHeaders(headers)
   
   if cacheSeconds > 0:
     headers["Cache-Control"] = "public, max-age=" & $cacheSeconds
@@ -196,19 +203,32 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
       sendError(request, 500, "storage_error", e.msg)
       return
     
-    # Parse repository URL
-    let repo = try:
-      parseRepositoryUrl(pkg.url)
-    except ValueError:
-      sendError(request, 400, "invalid_repo", "package URL is not a valid GitHub repository")
+    # Determine version
+    var versionStr = ""
+    if "version" in request.queryParams:
+      versionStr = request.queryParams["version"]
+    else:
+      if pkg.versions.len > 0:
+        versionStr = $pkg.versions[0].version.major & "." & $pkg.versions[0].version.minor & "." & $pkg.versions[0].version.patch
+    
+    if versionStr == "":
+      sendError(request, 404, "not_found", "no versions found for package: " & nameStr)
       return
     
-    # Fetch README
-    let readme = fetchReadme(state.gh, repo.owner, repo.name)
+    # Load README from storage
+    let readme = try:
+      loadReadme(state.store, nameStr, versionStr)
+    except storage.NotFoundError:
+      sendError(request, 404, "not_found", "readme not found for version: " & versionStr)
+      return
+    except storage.StorageError as e:
+      sendError(request, 500, "storage_error", e.msg)
+      return
     
     var headers = emptyHttpHeaders()
     headers["Content-Type"] = "text/markdown; charset=utf-8"
     headers["Access-Control-Allow-Origin"] = "*"
+    addSecurityHeaders(headers)
     request.respond(200, headers, readme)
 
 proc handleDownloads(state: ptr ServerState): RequestHandler =
@@ -275,6 +295,7 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
     headers["Content-Disposition"] = "attachment; filename=\"" & $name & "-" & versionStr & ".tar.gz\""
     headers["Cache-Control"] = "public, max-age=31536000, immutable"  # 1 year
     headers["Access-Control-Allow-Origin"] = "*"
+    addSecurityHeaders(headers)
     
     # Convert bytes to string for mummy
     var strData = newString(data.len)
@@ -289,7 +310,9 @@ proc serveStaticFile(state: ptr ServerState, fileName: string): RequestHandler =
   result = proc(request: Request) =
     let filePath = state.cfg.server.publicDir / fileName
     if not fileExists(filePath):
-      request.respond(404, emptyHttpHeaders(), "not found")
+      var headers = emptyHttpHeaders()
+      addSecurityHeaders(headers)
+      request.respond(404, headers, "not found")
       return
     
     let ext = splitFile(filePath).ext
@@ -302,6 +325,7 @@ proc serveStaticFile(state: ptr ServerState, fileName: string): RequestHandler =
     let data = readFile(filePath)
     var headers = emptyHttpHeaders()
     headers["Content-Type"] = contentType
+    addSecurityHeaders(headers)
     request.respond(200, headers, data)
 
 proc serveIndex(state: ptr ServerState): RequestHandler =
@@ -330,6 +354,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
     headers["Access-Control-Allow-Origin"] = "*"
     headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     headers["Access-Control-Allow-Headers"] = "Content-Type"
+    addSecurityHeaders(headers)
     request.respond(204, headers, "")
   )
 

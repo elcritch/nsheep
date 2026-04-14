@@ -248,9 +248,10 @@ proc fetchNimbleFile*(
     # File doesn't exist - valid case
     result = none(string)
 
-proc fetchReadme*(client: GitHubClient, owner, name: string): string =
-  ## Fetch README.md from GitHub raw content. Returns empty string on failure.
-  let url = "https://raw.githubusercontent.com/" & owner & "/" & name & "/HEAD/README.md"
+proc fetchReadme*(client: GitHubClient, owner, name, gitRef: string): string =
+  ## Fetch README.md from GitHub raw content for a specific ref (tag or branch).
+  ## Returns empty string on failure.
+  let url = "https://raw.githubusercontent.com/" & owner & "/" & name & "/" & gitRef & "/README.md"
   var headers: seq[Header] = @[Header(key: "User-Agent", value: "nsheep-" & Version)]
   if client.token.len > 0:
     headers.add(Header(key: "Authorization", value: "Bearer " & client.token))

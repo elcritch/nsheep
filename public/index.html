@@ -7,10 +7,10 @@
   <script>
     (function() {
       var theme = localStorage.getItem('nsheep-theme');
-      if (!theme) {
+      if (!theme && window.matchMedia) {
         theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
-      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.setAttribute('data-theme', theme || 'light');
     })();
   </script>
   <link rel="stylesheet" href="/app.css">

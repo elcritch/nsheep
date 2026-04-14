@@ -454,13 +454,18 @@ proc copyInstallCommand(cmd: string) =
   , 1500)
 
 proc loadTheme() =
-  let stored = $localstorage.getItem(cstring"nsheep-theme")
+  let storedItem = localstorage.getItem(cstring"nsheep-theme")
+  let stored = if storedItem != nil: $storedItem else: ""
   if stored == "dark":
     darkMode = true
   elif stored == "light":
     darkMode = false
   else:
-    darkMode = kdom.window.matchMedia(cstring"(prefers-color-scheme: dark)").matches
+    try:
+      let mq = kdom.window.matchMedia(cstring"(prefers-color-scheme: dark)")
+      darkMode = mq.matches
+    except:
+      darkMode = false
   kdom.document.documentElement.setAttribute("data-theme",
     if darkMode: cstring"dark" else: cstring"light")
 

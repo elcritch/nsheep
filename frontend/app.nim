@@ -7,9 +7,6 @@ type
   View = enum
     vHome, vPackage, vNotFound
 
-  SortOrder = enum
-    soUpdatedDesc, soUpdatedAsc
-
   PackageSummary = object
     name: string
     description: string
@@ -60,7 +57,6 @@ var
   displayedCount = 0
   searchTimer: JsObject = nil
   errorMessage = ""
-  currentSort = soUpdatedDesc
   totalPackages = 0
   currentPage = 1
 
@@ -231,27 +227,15 @@ proc fetchDetail(name: string) =
 # --- Filtering & Sorting ---
 
 proc sortFiltered() =
-  case currentSort
-  of soUpdatedDesc:
-    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
-        0
-      elif a.latestVersionPublishedAt == "":
-        1
-      elif b.latestVersionPublishedAt == "":
-        -1
-      else:
-        cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
-  of soUpdatedAsc:
-    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
-        0
-      elif a.latestVersionPublishedAt == "":
-        -1
-      elif b.latestVersionPublishedAt == "":
-        1
-      else:
-        cmp(a.latestVersionPublishedAt, b.latestVersionPublishedAt)
+  algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+    if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
+      0
+    elif a.latestVersionPublishedAt == "":
+      1
+    elif b.latestVersionPublishedAt == "":
+      -1
+    else:
+      cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
 
 proc applyFilters() =
   let q = searchQuery.toLowerAscii()
@@ -365,17 +349,7 @@ proc renderHome(): VNode =
     tdiv(class="search-wrap"):
       input(class="search", id="search-input", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
         proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
-      tdiv(class="sort-segment"):
-        button(class=cstring("sort-btn " & (if currentSort == soUpdatedDesc: "sort-active" else: "")), onclick=proc() =
-          currentSort = soUpdatedDesc
-          applyFilters()
-          redraw()
-        ): text "Recently updated"
-        button(class=cstring("sort-btn " & (if currentSort == soUpdatedAsc: "sort-active" else: "")), onclick=proc() =
-          currentSort = soUpdatedAsc
-          applyFilters()
-          redraw()
-        ): text "Oldest first"
+      tdiv(class="sort-label"): text "Recent published"
     if activeAuthor != "" or activeTag != "":
       tdiv(class="active-filters"):
         if activeAuthor != "":

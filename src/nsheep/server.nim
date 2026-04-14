@@ -143,6 +143,65 @@ proc handleValidations(state: ptr ServerState): RequestHandler =
     
     sendJson(request, arr, cacheSeconds = 300)
 
+proc handleReadme(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    let nameStr = request.pathParams["name"]
+    
+    # Parse name
+    let name = try:
+      initPackageName(nameStr)
+    except ValueError as e:
+      sendError(request, 400, "invalid_name", e.msg)
+      return
+    
+    # Load package
+    let pkg = try:
+      loadPackage(state.store, name)
+    except storage.NotFoundError:
+      sendError(request, 404, "not_found", "package not found: " & nameStr)
+      return
+    except storage.StorageError as e:
+      sendError(request, 500, "storage_error", e.msg)
+      return
+    
+    # Parse repository URL
+    let repo = try:
+      parseRepositoryUrl(pkg.url)
+    except ValueError:
+      sendError(request, 400, "invalid_repo", "package URL is not a valid GitHub repository")
+      return
+    
+    # Fetch README
+    let readme = fetchReadme(state.gh, repo.owner, repo.name)
+    
+    var headers = emptyHttpHeaders()
+    headers["Content-Type"] = "text/markdown; charset=utf-8"
+    headers["Access-Control-Allow-Origin"] = "*"
+    request.respond(200, headers, readme)
+
+proc handleDownloads(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    let nameStr = request.pathParams["name"]
+    
+    # Parse name
+    let name = try:
+      initPackageName(nameStr)
+    except ValueError as e:
+      sendError(request, 400, "invalid_name", e.msg)
+      return
+    
+    # Load download stats
+    let stats = getDownloadStats(state.store, name.string)
+    
+    var arr = newJArray()
+    for s in stats:
+      arr.add(%*{
+        "version": s.version,
+        "downloads": s.downloads
+      })
+    
+    sendJson(request, arr, cacheSeconds = 0)
+
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
@@ -161,6 +220,12 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
       sendError(request, 400, "invalid_version", "expected semver: " & versionStr)
       return
     let version = optVer.get()
+    
+    # Record download
+    try:
+      recordDownload(state.store, nameStr, versionStr)
+    except storage.StorageError as e:
+      error "Failed to record download", package = nameStr, version = versionStr, error = e.msg
     
     # Load tarball
     let data = try:
@@ -218,6 +283,8 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages/@name", handleGetPackage(state))
   # Note: Ingestion is now handled automatically by background fetcher
   router.get("/api/v1/packages/@name/validations", handleValidations(state))
+  router.get("/api/v1/packages/@name/readme", handleReadme(state))
+  router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
   router.get("/download/@name/@version", handleDownload(state))
   
   # Static frontend assets

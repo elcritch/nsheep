@@ -1,5 +1,5 @@
-import karax / [vdom, kdom, karax, karaxdsl, vstyles, jjson, kajax]
-import strutils, jsffi
+import karax / [vdom, kdom, karax, karaxdsl, vstyles, jjson, kajax, localstorage]
+import strutils, jsffi, algorithm
 
 # --- Types ---
 
@@ -7,11 +7,15 @@ type
   View = enum
     vHome, vPackage, vNotFound
 
+  SortOrder = enum
+    soNameAsc, soNameDesc, soUpdatedDesc
+
   PackageSummary = object
     name: string
     description: string
     author: string
     latestVersion: string
+    latestVersionPublishedAt: string
     tags: seq[string]
 
   VersionInfo = object
@@ -36,6 +40,8 @@ type
 
 # --- State ---
 
+const pageSize = 50
+
 var
   summaries: seq[PackageSummary] = @[]
   filtered: seq[PackageSummary] = @[]
@@ -48,13 +54,23 @@ var
   activeAuthor = ""
   activeTag = ""
   copyFeedback = ""
+  darkMode = false
+  readmeContent = ""
+  totalDownloads = 0
+  displayedCount = 0
+  searchTimer: JsObject = nil
+  errorMessage = ""
+  currentSort = soNameAsc
 
 # --- Forward Declarations ---
 
 proc fetchSummaries()
 proc fetchDetail(name: string)
 proc fetchValidations(name: string)
+proc fetchReadme(name: string)
+proc fetchDownloads(name: string)
 proc applyFilters()
+proc clearAllFilters()
 
 # --- Routing ---
 
@@ -89,7 +105,7 @@ proc onHashChange(ev: Event) =
 
 # --- Data Fetching ---
 
-proc fetchJson(url: cstring, cont: proc(data: JsonNode)) =
+proc fetchJson(url: cstring, cont: proc(data: JsonNode), errMsg: string = "") =
   let req = newRequest()
   req.open("GET", url, true)
   req.statechange proc() =
@@ -99,26 +115,45 @@ proc fetchJson(url: cstring, cont: proc(data: JsonNode)) =
         cont(parse(cast[cstring](r.responseText)))
       else:
         loading = false
+        if errMsg != "":
+          errorMessage = errMsg
         redraw()
+  req.send("")
+
+proc fetchText(url: cstring, cont: proc(text: string)) =
+  let req = newRequest()
+  req.open("GET", url, true)
+  req.statechange proc() =
+    let r = cast[JsObject](req)
+    if cast[int](r.readyState) == 4:
+      if cast[int](r.status) == 200:
+        cont($cast[cstring](r.responseText))
+      else:
+        cont("")
   req.send("")
 
 proc fetchSummaries() =
   loading = true
-  fetchJson(cstring"/api/v1/packages") do (data: JsonNode):
-    loading = false
-    summaries = @[]
-    for item in data:
-      summaries.add(PackageSummary(
-        name: $item["name"].getStr(),
-        description: if item.hasField("description"): $item["description"].getStr() else: "",
-        author: if item.hasField("author"): $item["author"].getStr() else: "",
-        latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
-        tags: if item.hasField("tags"):
-          (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
-        else: @[]
-      ))
-    applyFilters()
-    redraw()
+  errorMessage = ""
+  fetchJson(cstring"/api/v1/packages",
+    proc (data: JsonNode) =
+      loading = false
+      summaries = @[]
+      for item in data:
+        summaries.add(PackageSummary(
+          name: $item["name"].getStr(),
+          description: if item.hasField("description"): $item["description"].getStr() else: "",
+          author: if item.hasField("author"): $item["author"].getStr() else: "",
+          latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item["latestVersionPublishedAt"].getStr() else: "",
+          tags: if item.hasField("tags"):
+            (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
+          else: @[]
+        ))
+      applyFilters()
+      redraw(),
+    "Failed to load packages. Please try again."
+  )
 
 proc fetchValidations(name: string) =
   fetchJson(cstring("/api/v1/packages/" & name & "/validations")) do (data: JsonNode):
@@ -131,38 +166,77 @@ proc fetchValidations(name: string) =
       ))
     redraw()
 
-proc fetchDetail(name: string) =
-  loading = true
-  detail = PackageDetail()  # clear old
-  validations = @[]
-  fetchJson(cstring("/api/v1/packages/" & name)) do (data: JsonNode):
-    loading = false
-    var versions: seq[VersionInfo] = @[]
-    if data.hasField("versions"):
-      for v in data["versions"]:
-        versions.add(VersionInfo(
-          version: $v["version"].getStr(),
-          size: v["size"].getInt(),
-          checksum: $v["checksum"].getStr(),
-          publishedAt: $v["publishedAt"].getStr()
-        ))
-    var tags: seq[string] = @[]
-    if data.hasField("tags"):
-      for t in data["tags"]:
-        tags.add($t.getStr())
-    detail = PackageDetail(
-      name: $data["name"].getStr(),
-      description: if data.hasField("description"): $data["description"].getStr() else: "",
-      author: if data.hasField("author"): $data["author"].getStr() else: "",
-      license: if data.hasField("license"): $data["license"].getStr() else: "",
-      url: if data.hasField("url"): $data["url"].getStr() else: "",
-      tags: tags,
-      versions: versions
-    )
-    fetchValidations(name)
+proc fetchReadme(name: string) =
+  fetchText(cstring("/api/v1/packages/" & name & "/readme")) do (text: string):
+    readmeContent = text
     redraw()
 
-# --- Event Handlers ---
+proc fetchDownloads(name: string) =
+  fetchJson(cstring("/api/v1/packages/" & name & "/downloads")) do (data: JsonNode):
+    totalDownloads = 0
+    for item in data:
+      totalDownloads += item["downloads"].getInt()
+    redraw()
+
+proc fetchDetail(name: string) =
+  loading = true
+  errorMessage = ""
+  detail = PackageDetail()  # clear old
+  validations = @[]
+  readmeContent = ""
+  totalDownloads = 0
+  fetchJson(cstring("/api/v1/packages/" & name),
+    proc (data: JsonNode) =
+      loading = false
+      var versions: seq[VersionInfo] = @[]
+      if data.hasField("versions"):
+        for v in data["versions"]:
+          versions.add(VersionInfo(
+            version: $v["version"].getStr(),
+            size: v["size"].getInt(),
+            checksum: $v["checksum"].getStr(),
+            publishedAt: $v["publishedAt"].getStr()
+          ))
+      var tags: seq[string] = @[]
+      if data.hasField("tags"):
+        for t in data["tags"]:
+          tags.add($t.getStr())
+      detail = PackageDetail(
+        name: $data["name"].getStr(),
+        description: if data.hasField("description"): $data["description"].getStr() else: "",
+        author: if data.hasField("author"): $data["author"].getStr() else: "",
+        license: if data.hasField("license"): $data["license"].getStr() else: "",
+        url: if data.hasField("url"): $data["url"].getStr() else: "",
+        tags: tags,
+        versions: versions
+      )
+      fetchValidations(name)
+      fetchReadme(name)
+      fetchDownloads(name)
+      redraw(),
+    "Failed to load package details. Please try again."
+  )
+
+# --- Filtering & Sorting ---
+
+proc sortFiltered() =
+  case currentSort
+  of soNameAsc:
+    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+      cmp(a.name.toLowerAscii(), b.name.toLowerAscii())
+  of soNameDesc:
+    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+      cmp(b.name.toLowerAscii(), a.name.toLowerAscii())
+  of soUpdatedDesc:
+    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+      if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
+        cmp(a.name.toLowerAscii(), b.name.toLowerAscii())
+      elif a.latestVersionPublishedAt == "":
+        1
+      elif b.latestVersionPublishedAt == "":
+        -1
+      else:
+        cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
 
 proc applyFilters() =
   let q = searchQuery.toLowerAscii()
@@ -182,12 +256,21 @@ proc applyFilters() =
       matches = hasTag
     if matches:
       filtered.add(s)
+  sortFiltered()
+  displayedCount = min(pageSize, filtered.len)
+
+# --- Event Handlers ---
 
 proc onSearchInput(ev: Event; target: VNode) =
   let val = cast[JsObject](ev.target)["value"]
   searchQuery = $cast[cstring](val)
-  applyFilters()
-  redraw()
+  if searchTimer != nil:
+    discard cast[JsObject](kdom.window).clearTimeout(searchTimer)
+  searchTimer = cast[JsObject](kdom.window.setTimeout(proc() =
+    applyFilters()
+    redraw()
+    searchTimer = nil
+  , 150))
 
 proc clickAuthor(author: string) =
   activeAuthor = author
@@ -216,13 +299,67 @@ proc clearAllFilters() =
   applyFilters()
   redraw()
 
+# --- Keyboard Navigation ---
+
+proc onKeyDown(ev: Event) =
+  let k = cast[KeyboardEvent](ev)
+  case $k.key
+  of "/":
+    let tag = $cast[cstring](cast[JsObject](ev.target)["tagName"])
+    if tag.toLowerAscii() != "input":
+      ev.preventDefault()
+      let el = kdom.document.querySelector(cstring"#search-input")
+      if el != nil:
+        discard cast[JsObject](el).focus()
+  of "Escape":
+    if searchQuery != "" or activeAuthor != "" or activeTag != "":
+      clearAllFilters()
+      let el = kdom.document.querySelector(cstring"#search-input")
+      if el != nil:
+        discard cast[JsObject](el).focus()
+  of "ArrowDown", "ArrowUp":
+    if currentView == vHome:
+      let list = kdom.document.getElementById(cstring"package-list")
+      if list != nil:
+        let links = cast[JsObject](list).querySelectorAll(cstring"a")
+        let len = cast[int](cast[JsObject](links)["length"])
+        if len == 0: return
+        let active = cast[JsObject](kdom.document.activeElement)
+        var currentIdx = -1
+        for i in 0..<len:
+          if cast[JsObject](links[i]) == active:
+            currentIdx = i
+            break
+        var nextIdx = currentIdx
+        if $k.key == "ArrowDown":
+          nextIdx = if currentIdx < len - 1: currentIdx + 1 else: 0
+        else:
+          nextIdx = if currentIdx > 0: currentIdx - 1 else: len - 1
+        if nextIdx >= 0 and nextIdx < len:
+          discard cast[JsObject](links[nextIdx]).focus()
+          ev.preventDefault()
+  else:
+    discard
+
 # --- Views ---
 
 proc renderHome(): VNode =
   buildHtml(tdiv(class="page home")):
     tdiv(class="search-wrap"):
-      input(class="search", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
+      input(class="search", id="search-input", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
         proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
+      select(class="sort-select", onchange=proc(ev: Event; target: VNode) =
+        let val = $cast[cstring](cast[JsObject](ev.target)["value"])
+        case val
+        of "name-desc": currentSort = soNameDesc
+        of "updated-desc": currentSort = soUpdatedDesc
+        else: currentSort = soNameAsc
+        applyFilters()
+        redraw()
+      ):
+        option(value="name-asc", selected=currentSort == soNameAsc): text "Name A–Z"
+        option(value="name-desc", selected=currentSort == soNameDesc): text "Name Z–A"
+        option(value="updated-desc", selected=currentSort == soUpdatedDesc): text "Recently updated"
     if activeAuthor != "" or activeTag != "":
       tdiv(class="active-filters"):
         if activeAuthor != "":
@@ -237,11 +374,16 @@ proc renderHome(): VNode =
           button(class="clear-all", onclick=proc() = clearAllFilters()): text "Clear all"
     if loading:
       tdiv(class="status"): text "Loading…"
+    elif errorMessage != "":
+      tdiv(class="error-status"):
+        p: text errorMessage
+        button(class="retry-btn", onclick=proc() = fetchSummaries()): text "Retry"
     elif filtered.len == 0:
       tdiv(class="status"): text "No packages found."
     else:
-      tdiv(class="package-list"):
-        for s in filtered:
+      tdiv(class="package-list", id="package-list"):
+        for i in 0..<displayedCount:
+          let s = filtered[i]
           article(class="package-item"):
             header(class="package-header"):
               h2:
@@ -255,6 +397,12 @@ proc renderHome(): VNode =
                 text "By "
                 let author = s.author
                 a(href="#/", class="inline-link", onclick=proc() = clickAuthor(author)): text author
+      if displayedCount < filtered.len:
+        tdiv(class="load-more-wrap"):
+          button(class="load-more-btn", onclick=proc() =
+            displayedCount = min(filtered.len, displayedCount + pageSize)
+            redraw()
+          ): text ("Load more (" & $displayedCount & " of " & $filtered.len & ")")
 
 proc formatSize(bytes: int): string =
   if bytes < 1024:
@@ -277,16 +425,40 @@ proc copyInstallCommand(cmd: string) =
     redraw()
   , 1500)
 
+proc loadTheme() =
+  let stored = $localstorage.getItem(cstring"nsheep-theme")
+  if stored == "dark":
+    darkMode = true
+  elif stored == "light":
+    darkMode = false
+  else:
+    darkMode = kdom.window.matchMedia(cstring"(prefers-color-scheme: dark)").matches
+  kdom.document.documentElement.setAttribute("data-theme",
+    if darkMode: cstring"dark" else: cstring"light")
+
+proc toggleDarkMode() =
+  darkMode = not darkMode
+  let theme = if darkMode: cstring"dark" else: cstring"light"
+  localstorage.setItem(cstring"nsheep-theme", theme)
+  kdom.document.documentElement.setAttribute("data-theme", theme)
+  redraw()
+
 proc renderPackage(): VNode =
   buildHtml(tdiv(class="page package-detail")):
     a(href="#/", class="back-link"): text "← All packages"
     if loading:
       tdiv(class="status"): text "Loading…"
+    elif errorMessage != "":
+      tdiv(class="error-status"):
+        p: text errorMessage
+        button(class="retry-btn", onclick=proc() = fetchDetail(currentPkgName)): text "Retry"
     else:
       header(class="detail-header"):
         h1: text detail.name
         if detail.versions.len > 0:
           span(class="version-badge"): text detail.versions[0].version
+        if totalDownloads > 0:
+          span(class="download-count"): text ($totalDownloads & " downloads")
       tdiv(class="install-command"):
         code: text ("nimble install " & detail.name)
         button(class="copy-btn", onclick=proc() = copyInstallCommand("nimble install " & detail.name)):
@@ -334,6 +506,10 @@ proc renderPackage(): VNode =
               class="download-link",
               download=""
             ): text "Download"
+      if readmeContent != "":
+        section(class="readme"):
+          h2: text "README"
+          pre: text readmeContent
 
 proc renderNotFound(): VNode =
   buildHtml(tdiv(class="page notfound")):
@@ -346,6 +522,8 @@ proc render(): VNode =
     header(class="site-header"):
       tdiv(class="header-inner"):
         a(href="#/", class="logo"): text "NSheep"
+        button(class="theme-toggle", onclick=proc() = toggleDarkMode()):
+          text (if darkMode: "☀" else: "☾")
     main(class="site-main"):
       case currentView
       of vHome: renderHome()
@@ -357,7 +535,9 @@ proc render(): VNode =
 # --- Bootstrap ---
 
 setRenderer render
+loadTheme()
 kdom.window.addEventListener("hashchange", onHashChange)
+kdom.document.addEventListener("keydown", onKeyDown)
 updateRoute()
 case currentView
 of vHome:

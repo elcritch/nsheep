@@ -58,10 +58,20 @@ CREATE TABLE IF NOT EXISTS validation_results (
     UNIQUE(package_name, version)
 );
 
+-- Download statistics table
+CREATE TABLE IF NOT EXISTS download_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    downloads INTEGER DEFAULT 0,
+    UNIQUE(package_name, version)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_packages_name ON packages(name);
 CREATE INDEX IF NOT EXISTS idx_versions_package ON versions(package_id);
 CREATE INDEX IF NOT EXISTS idx_validation_package ON validation_results(package_name);
+CREATE INDEX IF NOT EXISTS idx_downloads_package ON download_stats(package_name);
 """
 
 # --- Types ---
@@ -347,3 +357,32 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
       success: row[1].intVal != 0,
       testedAt: parse(row[2].strVal, "yyyy-MM-dd HH:mm:ss")
     ))
+
+proc recordDownload*(s: DbStorage, pkgName: string, version: string) =
+  ## Record a download for a package version
+  s.db.exec("""
+    INSERT INTO download_stats (package_name, version, downloads)
+    VALUES (?, ?, 1)
+    ON CONFLICT(package_name, version) DO UPDATE SET
+      downloads = downloads + 1
+  """, pkgName, version)
+
+proc getDownloadStats*(s: DbStorage, pkgName: string): seq[tuple[version: string, downloads: int]] =
+  ## Get download statistics for all versions of a package
+  for row in s.db.all("""
+    SELECT version, downloads FROM download_stats
+    WHERE package_name = ?
+    ORDER BY version DESC
+  """, pkgName):
+    result.add((version: row[0].strVal, downloads: row[1].intVal.int))
+
+proc getTotalDownloads*(s: DbStorage, pkgName: string): int =
+  ## Get total download count for a package
+  let row = s.db.one("""
+    SELECT COALESCE(SUM(downloads), 0) FROM download_stats
+    WHERE package_name = ?
+  """, pkgName)
+  if row.isSome:
+    result = row.get()[0].intVal.int
+  else:
+    result = 0

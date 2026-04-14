@@ -247,3 +247,21 @@ proc fetchNimbleFile*(
   except NotFoundError:
     # File doesn't exist - valid case
     result = none(string)
+
+proc fetchReadme*(client: GitHubClient, owner, name: string): string =
+  ## Fetch README.md from GitHub raw content. Returns empty string on failure.
+  let url = "https://raw.githubusercontent.com/" & owner & "/" & name & "/HEAD/README.md"
+  var headers: seq[Header] = @[Header(key: "User-Agent", value: "nsheep-" & Version)]
+  if client.token.len > 0:
+    headers.add(Header(key: "Authorization", value: "Bearer " & client.token))
+  
+  try:
+    let response = get(url, headers)
+    if response.code == 200:
+      result = response.body
+    else:
+      debug "README fetch failed", url = url, status = response.code
+      result = ""
+  except:
+    warn "README fetch error", url = url, error = getCurrentExceptionMsg()
+    result = ""

@@ -188,12 +188,14 @@ type
     url*: string
     tags*: seq[string]
     latestVersion*: string
+    updatedAt*: string
+    latestVersionPublishedAt*: string
 
 proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
   ## List all packages with metadata and latest version
   for row in s.db.all("""
-    SELECT p.name, p.description, p.author, p.license, p.url, p.tags,
-           v.major, v.minor, v.patch
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.updated_at,
+           v.major, v.minor, v.patch, v.published_at
     FROM packages p
     LEFT JOIN versions v ON v.id = (
       SELECT id FROM versions
@@ -212,8 +214,8 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
       discard
 
     var latestVersion = ""
-    if row[6].kind != sqliteNull:
-      latestVersion = $row[6].intVal & "." & $row[7].intVal & "." & $row[8].intVal
+    if row[7].kind != sqliteNull:
+      latestVersion = $row[7].intVal & "." & $row[8].intVal & "." & $row[9].intVal
 
     result.add(PackageSummary(
       name: row[0].strVal,
@@ -222,14 +224,16 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
       license: row[3].strVal,
       url: row[4].strVal,
       tags: tags,
-      latestVersion: latestVersion
+      latestVersion: latestVersion,
+      updatedAt: row[6].strVal,
+      latestVersionPublishedAt: if row[10].kind != sqliteNull: row[10].strVal else: ""
     ))
 
 proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSummary] =
   ## List packages with metadata and latest version, paginated
   for row in s.db.all("""
-    SELECT p.name, p.description, p.author, p.license, p.url, p.tags,
-           v.major, v.minor, v.patch
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.updated_at,
+           v.major, v.minor, v.patch, v.published_at
     FROM packages p
     LEFT JOIN versions v ON v.id = (
       SELECT id FROM versions
@@ -249,8 +253,8 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSu
       discard
 
     var latestVersion = ""
-    if row[6].kind != sqliteNull:
-      latestVersion = $row[6].intVal & "." & $row[7].intVal & "." & $row[8].intVal
+    if row[7].kind != sqliteNull:
+      latestVersion = $row[7].intVal & "." & $row[8].intVal & "." & $row[9].intVal
 
     result.add(PackageSummary(
       name: row[0].strVal,
@@ -259,7 +263,9 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSu
       license: row[3].strVal,
       url: row[4].strVal,
       tags: tags,
-      latestVersion: latestVersion
+      latestVersion: latestVersion,
+      updatedAt: row[6].strVal,
+      latestVersionPublishedAt: if row[10].kind != sqliteNull: row[10].strVal else: ""
     ))
 
 proc countPackages*(s: DbStorage): int =

@@ -7,11 +7,15 @@ type
   View = enum
     vHome, vPackage, vNotFound
 
+  SortOrder = enum
+    soUpdatedDesc, soPublishedDesc
+
   PackageSummary = object
     name: string
     description: string
     author: string
     latestVersion: string
+    updatedAt: string
     latestVersionPublishedAt: string
     tags: seq[string]
 
@@ -57,6 +61,7 @@ var
   displayedCount = 0
   searchTimer: JsObject = nil
   errorMessage = ""
+  currentSort = soPublishedDesc
   totalPackages = 0
   currentPage = 1
 
@@ -145,6 +150,7 @@ proc fetchSummaries(page: int = 1) =
             description: if item.hasField("description"): $item["description"].getStr() else: "",
             author: if item.hasField("author"): $item["author"].getStr() else: "",
             latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+            updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
             latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item["latestVersionPublishedAt"].getStr() else: "",
             tags: if item.hasField("tags"):
               (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
@@ -227,15 +233,27 @@ proc fetchDetail(name: string) =
 # --- Filtering & Sorting ---
 
 proc sortFiltered() =
-  algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-    if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
-      0
-    elif a.latestVersionPublishedAt == "":
-      1
-    elif b.latestVersionPublishedAt == "":
-      -1
-    else:
-      cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
+  case currentSort
+  of soPublishedDesc:
+    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+      if a.latestVersionPublishedAt == "" and b.latestVersionPublishedAt == "":
+        0
+      elif a.latestVersionPublishedAt == "":
+        1
+      elif b.latestVersionPublishedAt == "":
+        -1
+      else:
+        cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
+  of soUpdatedDesc:
+    algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
+      if a.updatedAt == "" and b.updatedAt == "":
+        0
+      elif a.updatedAt == "":
+        1
+      elif b.updatedAt == "":
+        -1
+      else:
+        cmp(b.updatedAt, a.updatedAt)
 
 proc applyFilters() =
   let q = searchQuery.toLowerAscii()
@@ -350,7 +368,16 @@ proc renderHome(): VNode =
       input(class="search", id="search-input", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
         proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
       tdiv(class="sort-segment"):
-        button(class="sort-btn sort-active"): text "Recent published"
+        button(class=cstring("sort-btn " & (if currentSort == soPublishedDesc: "sort-active" else: "")), onclick=proc() =
+          currentSort = soPublishedDesc
+          applyFilters()
+          redraw()
+        ): text "Recent published"
+        button(class=cstring("sort-btn " & (if currentSort == soUpdatedDesc: "sort-active" else: "")), onclick=proc() =
+          currentSort = soUpdatedDesc
+          applyFilters()
+          redraw()
+        ): text "Recently updated"
     if activeAuthor != "" or activeTag != "":
       tdiv(class="active-filters"):
         if activeAuthor != "":

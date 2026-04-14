@@ -136,7 +136,9 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
         "license": s.license,
         "url": s.url,
         "tags": tags,
-        "latestVersion": s.latestVersion
+        "latestVersion": s.latestVersion,
+        "updatedAt": s.updatedAt,
+        "latestVersionPublishedAt": s.latestVersionPublishedAt
       })
 
     let body = %*{

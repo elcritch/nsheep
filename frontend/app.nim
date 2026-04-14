@@ -1,4 +1,4 @@
-import karax / [vdom, kdom, karax, karaxdsl, vstyles, jjson, kajax, localstorage]
+import karax / [vdom, kdom, karax, karaxdsl, jjson, kajax, localstorage]
 import strutils, jsffi, algorithm
 
 # --- Types ---
@@ -314,10 +314,12 @@ proc clearAllFilters() =
 
 proc onKeyDown(ev: Event) =
   let k = cast[KeyboardEvent](ev)
+  if k.ctrlKey or k.metaKey or k.altKey:
+    return
   case $k.key
   of "/":
     let tag = $cast[cstring](cast[JsObject](ev.target)["tagName"])
-    if tag.toLowerAscii() != "input":
+    if tag.toLowerAscii() notin ["input", "textarea", "select"]:
       ev.preventDefault()
       let el = kdom.document.querySelector(cstring"#search-input")
       if el != nil:
@@ -422,9 +424,13 @@ proc renderHome(): VNode =
                 a(href="#/", class="inline-link", onclick=proc() = clickAuthor(author)): text author
       if summaries.len < totalPackages:
         tdiv(class="load-more-wrap"):
-          button(class="load-more-btn", onclick=proc() =
+          button(class="load-more-btn", disabled=loading, onclick=proc() =
             fetchSummaries(currentPage + 1)
-          ): text ("Load more (" & $summaries.len & " of " & $totalPackages & ")")
+          ):
+            if loading:
+              text "Loading..."
+            else:
+              text ("Load more (" & $summaries.len & " of " & $totalPackages & ")")
 
 proc formatSize(bytes: int): string =
   if bytes < 1024:
@@ -571,7 +577,7 @@ proc render(): VNode =
     header(class="site-header"):
       tdiv(class="header-inner"):
         a(href="#/", class="logo"): text "NSheep"
-        button(class="theme-toggle", onclick=proc() = toggleDarkMode()):
+        button(class="theme-toggle", ariaLabel=cstring(if darkMode: "Switch to light mode" else: "Switch to dark mode"), onclick=proc() = toggleDarkMode()):
           text (if darkMode: "☀" else: "☾")
     main(class="site-main"):
       case currentView

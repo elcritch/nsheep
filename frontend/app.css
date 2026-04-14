@@ -130,8 +130,11 @@ a:hover {
   transition: color 0.12s ease-out;
 }
 
-.theme-toggle:hover {
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
   color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .site-main {
@@ -166,7 +169,6 @@ a:hover {
   min-width: 220px;
   max-width: 400px;
   width: 100%;
-  max-width: 400px;
   padding: 0.625rem 0.875rem;
   font-size: 1rem;
   font-family: inherit;
@@ -362,9 +364,17 @@ a:hover {
   transition: border-color 0.12s ease-out, color 0.12s ease-out;
 }
 
-.load-more-btn:hover {
+.load-more-btn:hover,
+.load-more-btn:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* --- Error Status --- */
@@ -453,12 +463,15 @@ a:hover {
   padding: 0.5rem 0.875rem;
   cursor: pointer;
   transition: background 0.12s ease-out;
-  min-width: 4.5rem;
+  min-width: 5.5rem;
   line-height: 1.25;
 }
 
-.copy-btn:hover {
+.copy-btn:hover,
+.copy-btn:focus-visible {
   background: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .detail-desc {
@@ -514,10 +527,13 @@ a:hover {
   transition: background 0.12s ease-out, color 0.12s ease-out;
 }
 
-.tag:hover {
+.tag:hover,
+.tag:focus-visible {
   background: var(--tag-bg-hover);
   color: var(--accent);
   opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* --- Versions --- */
@@ -584,9 +600,47 @@ a:hover {
   margin-left: auto;
 }
 
-.download-link:hover {
+.download-link:hover,
+.download-link:focus-visible {
   opacity: 1;
   text-decoration: underline;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.download-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--tag-bg);
+  padding: 0.25rem 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.readme {
+  margin-top: 2rem;
+}
+
+.readme h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--text);
+}
+
+.readme pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text);
 }
 
 /* --- 404 --- */
@@ -676,7 +730,7 @@ a:hover {
 .sk-line { width: 100%; height: 1rem; }
 .sk-pill { width: 60px; height: 1.25rem; }
 
-.sk-search { width: 100%; max-width: 400px; height: 2.75rem; }
+.sk-search { width: 100%; max-width: 400px; height: 2.5rem; }
 .sk-back { width: 100px; height: 0.875rem; }
 .sk-header-title { width: 200px; height: 2rem; }
 .sk-install-code { width: 200px; height: 2.25rem; }

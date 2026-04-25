@@ -62,10 +62,10 @@ rm -rf "$NSHEEP_DIR"
 # If you have the repo locally, scp it instead:
 # scp -r /local/nsheep root@$IP:/opt/
 # Clone from GitHub
-git clone https://github.com/nim-community/nsheep.git "$NSHEEP_DIR" 2>/dev/null || {
-  echo "Git clone failed. Please scp your local nsheep repo to $NSHEEP_DIR"
-  exit 1
-}
+# git clone https://github.com/nim-community/nsheep.git "$NSHEEP_DIR" 2>/dev/null || {
+#   echo "Git clone failed. Please scp your local nsheep repo to $NSHEEP_DIR"
+#   exit 1
+# }
 
 cd "$NSHEEP_DIR"
 

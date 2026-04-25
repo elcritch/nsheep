@@ -25,6 +25,22 @@ type
     ## Entry from nimble packages.json — carries the canonical name
     repo*: RepoRef
     name*: string
+    tags*: seq[string]
+
+proc parseTags*(pkg: JsonNode): seq[string] =
+  ## Parse tags array from a nimble packages.json entry.
+  ## Returns empty seq if tags field is missing, null, or malformed.
+  result = @[]
+  if not pkg.hasKey("tags"):
+    return
+  let tagsNode = pkg["tags"]
+  if tagsNode.kind != JArray:
+    return
+  for tag in tagsNode:
+    if tag.kind == JString:
+      let s = tag.getStr().strip()
+      if s.len > 0:
+        result.add(s)
 
 proc defaultFetcherConfig*(): FetcherConfig =
   FetcherConfig(
@@ -53,9 +69,10 @@ proc fetchNimblePackages(): seq[NimblePkg] =
 
       let url = pkg["url"].getStr()
       let name = pkg["name"].getStr()
+      let tags = parseTags(pkg)
       let repoOpt = vcs.parseRepoUrl(url)
       if repoOpt.isSome:
-        result.add(NimblePkg(repo: repoOpt.get(), name: name))
+        result.add(NimblePkg(repo: repoOpt.get(), name: name, tags: tags))
     except:
       continue
 

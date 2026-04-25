@@ -24,4 +24,4 @@ task frontend, "Build frontend assets":
   exec "cp frontend/app.css public/"
 
 task test, "Run tests":
-  echo "No tests configured"
+  exec "nim c -r tests/test_tags.nim"

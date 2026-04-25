@@ -44,11 +44,11 @@ proc runDockerBuild(repoUrl, tag, dockerImage: string, timeout: int): BuildResul
   
   let srcDir = tempDir / "src"
   
-  # Clone specific tag/branch
+  # Clone specific tag/branch (shallow, single-branch to minimize data)
   let cloneCmd = if tag == "default":
-    "git clone --depth 1 " & repoUrl & " " & srcDir
+    "git clone --depth 1 --single-branch " & repoUrl.quoteShell & " " & srcDir.quoteShell
   else:
-    "git clone --depth 1 --branch " & tag & " " & repoUrl & " " & srcDir
+    "git clone --depth 1 --single-branch --branch " & tag.quoteShell & " " & repoUrl.quoteShell & " " & srcDir.quoteShell
   
   var startTime = getTime()
   
@@ -89,23 +89,32 @@ proc runDockerBuild(repoUrl, tag, dockerImage: string, timeout: int): BuildResul
   result.output = buildOut
 
 proc getLatestTags(repoUrl: string, count: int): seq[string] =
-  ## Get latest N tags from git repository
-  let tempDir = createTempDir("nsheep-tags", "")
-  defer: removeDir(tempDir)
-  
-  # Shallow clone to get tags
-  let cmd = "git clone --depth 1 --no-checkout " & repoUrl & " " & tempDir & " 2>&1 && cd " & tempDir & " && git tag -l 2>/dev/null | sort -V | tail -" & $count
+  ## Get latest N tags from git repository via ls-remote (no clone needed)
+  let cmd = "git ls-remote --tags " & repoUrl.quoteShell & " 2>&1"
   let (output, exitCode) = execCmdEx(cmd)
   
   if exitCode != 0:
     return @[]
   
+  var tags: seq[string] = @[]
   for line in output.splitLines():
-    let tag = line.strip()
-    if tag.len > 0 and not tag.contains(" "):
-      result.add(tag)
+    let parts = line.strip().split('\t')
+    if parts.len >= 2:
+      let refPath = parts[1]
+      # refs/tags/v1.0.0^{} is the dereferenced commit; skip it
+      if refPath.startsWith("refs/tags/") and not refPath.endsWith("^{}"):
+        let tag = refPath[10 .. ^1]  # strip "refs/tags/"
+        if tag.len > 0 and not tag.contains(" "):
+          tags.add(tag)
   
-  result.reverse()  # Latest first
+  # Sort version tags and take latest N
+  tags.sort(cmp = system.cmp[string])
+  if tags.len > count:
+    tags = tags[tags.len - count .. ^1]
+  else:
+    tags = tags
+  
+  result = tags
 
 proc validatePackage*(
   s: DbStorage,

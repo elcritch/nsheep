@@ -442,11 +442,11 @@ proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours
   let updatedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
   result = (now() - updatedAt).inHours < withinHours
 
-const DefaultSkipRecentHours* = 6
-
-proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinHours: int = DefaultSkipRecentHours): bool =
-  ## Check if the fetcher fully processed a package within the given hours.
+proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
+  ## Check if the fetcher fully processed a package within the given seconds.
   ## Uses updated_at since storePackage() touches it on every ingest.
+  if withinSeconds <= 0:
+    return false
   let row = s.db.one("""
     SELECT updated_at FROM packages
     WHERE name = ? AND updated_at IS NOT NULL
@@ -456,7 +456,7 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinHours: int =
     return false
 
   let updatedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
-  result = (now() - updatedAt).inHours < withinHours
+  result = (now() - updatedAt).inSeconds < withinSeconds
 
 # --- Validation Result Operations ---
 

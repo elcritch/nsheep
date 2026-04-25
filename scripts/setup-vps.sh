@@ -123,9 +123,29 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+cat > /etc/systemd/system/nsheep-fetcher.service << 'EOF'
+[Unit]
+Description=NSheep Package Fetcher
+After=network.target
+
+[Service]
+Type=simple
+User=nsheep
+Group=nsheep
+WorkingDirectory=/opt/nsheep
+ExecStart=/opt/nsheep/nsheep-fetcher /opt/nsheep/cfg.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
 systemctl enable nsheep
 systemctl start nsheep
+systemctl enable nsheep-fetcher
+systemctl start nsheep-fetcher
 
 # --- Nginx ---
 echo "[8/9] Configuring nginx..."
@@ -195,7 +215,10 @@ echo "NSheep API:    http://${DOMAIN:-$IP}/api/v1/packages"
 echo "Packages.json: http://${DOMAIN:-$IP}/packages.json"
 echo "Health:        http://${DOMAIN:-$IP}/health"
 echo ""
-echo "To run the fetcher (ingest packages):"
-echo "  cd $NSHEEP_DIR && ./nsheep-fetcher cfg.yaml"
+echo "Services:"
+echo "  Server:  systemctl status nsheep"
+echo "  Fetcher: systemctl status nsheep-fetcher"
 echo ""
-echo "Logs: journalctl -u nsheep -f"
+echo "Logs:"
+echo "  journalctl -u nsheep -f"
+echo "  journalctl -u nsheep-fetcher -f"

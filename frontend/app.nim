@@ -5,7 +5,7 @@ import strutils, jsffi, algorithm
 
 type
   View = enum
-    vHome, vPackage, vNotFound
+    vHome, vPackage, vHelp, vNotFound
 
   SortOrder = enum
     soUpdatedDesc, soPublishedDesc
@@ -85,6 +85,8 @@ proc parseHash(): View =
   elif h.startsWith("#/package/"):
     result = vPackage
     currentPkgName = h[10..^1]
+  elif h == "#/help":
+    result = vHelp
   else:
     result = vNotFound
 
@@ -104,6 +106,9 @@ proc onHashChange(ev: Event) =
       redraw()
   of vPackage:
     fetchDetail(currentPkgName)
+  of vHelp:
+    loading = false
+    redraw()
   of vNotFound:
     redraw()
 
@@ -142,31 +147,32 @@ proc fetchSummaries(page: int = 1) =
   let url = "/api/v1/packages?page=" & $page & "&limit=" & $pageSize
   fetchJson(cstring(url),
     proc (data: JsonNode) =
-      loading = false
-      var newItems: seq[PackageSummary] = @[]
-      if data.hasField("packages"):
-        for item in data["packages"]:
-          newItems.add(PackageSummary(
-            name: $item["name"].getStr(),
-            description: if item.hasField("description"): $item["description"].getStr() else: "",
-            author: if item.hasField("author"): $item["author"].getStr() else: "",
-            latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
-            createdAt: if item.hasField("createdAt"): $item["createdAt"].getStr() else: "",
-            updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
-            latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item["latestVersionPublishedAt"].getStr() else: "",
-            tags: if item.hasField("tags"):
+    loading = false
+    var newItems: seq[PackageSummary] = @[]
+    if data.hasField("packages"):
+      for item in data["packages"]:
+        newItems.add(PackageSummary(
+          name: $item["name"].getStr(),
+          description: if item.hasField("description"): $item["description"].getStr() else: "",
+          author: if item.hasField("author"): $item["author"].getStr() else: "",
+          latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+          createdAt: if item.hasField("createdAt"): $item["createdAt"].getStr() else: "",
+          updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
+          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item[
+              "latestVersionPublishedAt"].getStr() else: "",
+          tags: if item.hasField("tags"):
               (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
             else: @[]
           ))
-      if data.hasField("total"):
-        totalPackages = data["total"].getInt()
-      currentPage = page
-      if page == 1:
-        summaries = newItems
-      else:
-        summaries.add(newItems)
-      applyFilters()
-      redraw(),
+    if data.hasField("total"):
+      totalPackages = data["total"].getInt()
+    currentPage = page
+    if page == 1:
+      summaries = newItems
+    else:
+      summaries.add(newItems)
+    applyFilters()
+    redraw(),
     "Failed to load packages. Please try again."
   )
 
@@ -196,39 +202,39 @@ proc fetchDownloads(name: string) =
 proc fetchDetail(name: string) =
   loading = true
   errorMessage = ""
-  detail = PackageDetail()  # clear old
+  detail = PackageDetail() # clear old
   validations = @[]
   readmeContent = ""
   totalDownloads = 0
   fetchJson(cstring("/api/v1/packages/" & name),
     proc (data: JsonNode) =
-      loading = false
-      var versions: seq[VersionInfo] = @[]
-      if data.hasField("versions"):
-        for v in data["versions"]:
-          versions.add(VersionInfo(
-            version: $v["version"].getStr(),
-            size: v["size"].getInt(),
-            checksum: $v["checksum"].getStr(),
-            publishedAt: $v["publishedAt"].getStr()
-          ))
-      var tags: seq[string] = @[]
-      if data.hasField("tags"):
-        for t in data["tags"]:
-          tags.add($t.getStr())
-      detail = PackageDetail(
-        name: $data["name"].getStr(),
-        description: if data.hasField("description"): $data["description"].getStr() else: "",
-        author: if data.hasField("author"): $data["author"].getStr() else: "",
-        license: if data.hasField("license"): $data["license"].getStr() else: "",
-        url: if data.hasField("url"): $data["url"].getStr() else: "",
-        tags: tags,
-        versions: versions
-      )
-      fetchValidations(name)
-      fetchReadme(name)
-      fetchDownloads(name)
-      redraw(),
+    loading = false
+    var versions: seq[VersionInfo] = @[]
+    if data.hasField("versions"):
+      for v in data["versions"]:
+        versions.add(VersionInfo(
+          version: $v["version"].getStr(),
+          size: v["size"].getInt(),
+          checksum: $v["checksum"].getStr(),
+          publishedAt: $v["publishedAt"].getStr()
+        ))
+    var tags: seq[string] = @[]
+    if data.hasField("tags"):
+      for t in data["tags"]:
+        tags.add($t.getStr())
+    detail = PackageDetail(
+      name: $data["name"].getStr(),
+      description: if data.hasField("description"): $data["description"].getStr() else: "",
+      author: if data.hasField("author"): $data["author"].getStr() else: "",
+      license: if data.hasField("license"): $data["license"].getStr() else: "",
+      url: if data.hasField("url"): $data["url"].getStr() else: "",
+      tags: tags,
+      versions: versions
+    )
+    fetchValidations(name)
+    fetchReadme(name)
+    fetchDownloads(name)
+    redraw(),
     "Failed to load package details. Please try again."
   )
 
@@ -365,73 +371,74 @@ proc onKeyDown(ev: Event) =
 # --- Views ---
 
 proc renderHome(): VNode =
-  buildHtml(tdiv(class="page home")):
-    tdiv(class="search-wrap"):
-      input(class="search", id="search-input", `type`="text", placeholder="Search packages…", value=cstring(searchQuery)):
+  buildHtml(tdiv(class = "page home")):
+    tdiv(class = "search-wrap"):
+      input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…", value = cstring(searchQuery)):
         proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
-      tdiv(class="sort-segment"):
-        button(class=cstring("sort-btn " & (if currentSort == soPublishedDesc: "sort-active" else: "")), onclick=proc() =
+      tdiv(class = "sort-segment"):
+        button(class = cstring("sort-btn " & (if currentSort == soPublishedDesc: "sort-active" else: "")),
+            onclick = proc() =
           currentSort = soPublishedDesc
           applyFilters()
           redraw()
         ): text "Recent published"
-        button(class=cstring("sort-btn " & (if currentSort == soUpdatedDesc: "sort-active" else: "")), onclick=proc() =
+        button(class = cstring("sort-btn " & (if currentSort == soUpdatedDesc: "sort-active" else: "")), onclick = proc() =
           currentSort = soUpdatedDesc
           applyFilters()
           redraw()
         ): text "Recently updated"
     if activeAuthor != "" or activeTag != "":
-      tdiv(class="active-filters"):
+      tdiv(class = "active-filters"):
         if activeAuthor != "":
-          span(class="filter-badge author-badge"):
+          span(class = "filter-badge author-badge"):
             text ("Author: " & activeAuthor)
-            button(class="clear-btn", onclick=proc() = clearAuthor()): text "×"
+            button(class = "clear-btn", onclick = proc() = clearAuthor()): text "×"
         if activeTag != "":
-          span(class="filter-badge tag-badge"):
+          span(class = "filter-badge tag-badge"):
             text ("Tag: " & activeTag)
-            button(class="clear-btn", onclick=proc() = clearTag()): text "×"
+            button(class = "clear-btn", onclick = proc() = clearTag()): text "×"
         if activeAuthor != "" or activeTag != "":
-          button(class="clear-all", onclick=proc() = clearAllFilters()): text "Clear all"
+          button(class = "clear-all", onclick = proc() = clearAllFilters()): text "Clear all"
     if loading:
-      tdiv(class="home-skeleton"):
-        tdiv(class="search-wrap"):
-          tdiv(class="skeleton sk-search")
-        tdiv(class="package-list"):
+      tdiv(class = "home-skeleton"):
+        tdiv(class = "search-wrap"):
+          tdiv(class = "skeleton sk-search")
+        tdiv(class = "package-list"):
           for i in 1..5:
-            article(class="package-item"):
-              header(class="package-header"):
-                tdiv(class="skeleton sk-title")
-                tdiv(class="skeleton sk-badge")
-              tdiv(class="package-desc"):
-                tdiv(class="skeleton sk-desc")
-              tdiv(class="package-meta"):
-                tdiv(class="skeleton sk-meta")
+            article(class = "package-item"):
+              header(class = "package-header"):
+                tdiv(class = "skeleton sk-title")
+                tdiv(class = "skeleton sk-badge")
+              tdiv(class = "package-desc"):
+                tdiv(class = "skeleton sk-desc")
+              tdiv(class = "package-meta"):
+                tdiv(class = "skeleton sk-meta")
     elif errorMessage != "":
-      tdiv(class="error-status"):
+      tdiv(class = "error-status"):
         p: text errorMessage
-        button(class="retry-btn", onclick=proc() = fetchSummaries()): text "Retry"
+        button(class = "retry-btn", onclick = proc() = fetchSummaries()): text "Retry"
     elif filtered.len == 0:
-      tdiv(class="status"): text "No packages found."
+      tdiv(class = "status"): text "No packages found."
     else:
-      tdiv(class="package-list", id="package-list"):
+      tdiv(class = "package-list", id = "package-list"):
         for i in 0..<displayedCount:
           let s = filtered[i]
-          article(class="package-item"):
-            header(class="package-header"):
+          article(class = "package-item"):
+            header(class = "package-header"):
               h2:
-                a(href=cstring("#/package/" & s.name)): text s.name
+                a(href = cstring("#/package/" & s.name)): text s.name
               if s.latestVersion != "":
-                span(class="version-badge"): text s.latestVersion
+                span(class = "version-badge"): text s.latestVersion
             if s.description != "":
-              p(class="package-desc"): text s.description
+              p(class = "package-desc"): text s.description
             if s.author != "":
-              p(class="package-meta"):
+              p(class = "package-meta"):
                 text "By "
                 let author = s.author
-                a(href="#/", class="inline-link", onclick=proc() = clickAuthor(author)): text author
+                a(href = "#/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
       if summaries.len < totalPackages:
-        tdiv(class="load-more-wrap"):
-          button(class="load-more-btn", disabled=loading, onclick=proc() =
+        tdiv(class = "load-more-wrap"):
+          button(class = "load-more-btn", disabled = loading, onclick = proc() =
             fetchSummaries(currentPage + 1)
           ):
             if loading:
@@ -484,81 +491,81 @@ proc toggleDarkMode() =
   redraw()
 
 proc renderPackage(): VNode =
-  buildHtml(tdiv(class="page package-detail")):
-    a(href="#/", class="back-link"): text "← All packages"
+  buildHtml(tdiv(class = "page package-detail")):
+    a(href = "#/", class = "back-link"): text "← All packages"
     if loading:
-      tdiv(class="package-skeleton"):
-        tdiv(class="back-link"):
-          tdiv(class="skeleton sk-back")
-        header(class="detail-header"):
-          tdiv(class="skeleton sk-header-title")
-          tdiv(class="skeleton sk-badge")
-        tdiv(class="install-command"):
-          tdiv(class="skeleton sk-install-code")
-          tdiv(class="skeleton sk-install-btn")
-        tdiv(class="detail-desc"):
-          tdiv(class="skeleton sk-line")
-          tdiv(class="skeleton sk-line sk-mt05")
-        dl(class="detail-meta"):
+      tdiv(class = "package-skeleton"):
+        tdiv(class = "back-link"):
+          tdiv(class = "skeleton sk-back")
+        header(class = "detail-header"):
+          tdiv(class = "skeleton sk-header-title")
+          tdiv(class = "skeleton sk-badge")
+        tdiv(class = "install-command"):
+          tdiv(class = "skeleton sk-install-code")
+          tdiv(class = "skeleton sk-install-btn")
+        tdiv(class = "detail-desc"):
+          tdiv(class = "skeleton sk-line")
+          tdiv(class = "skeleton sk-line sk-mt05")
+        dl(class = "detail-meta"):
           for i in 1..3:
-            dt: tdiv(class="skeleton sk-meta-label")
-            dd: tdiv(class="skeleton sk-meta-value")
-        tdiv(class="tags"):
+            dt: tdiv(class = "skeleton sk-meta-label")
+            dd: tdiv(class = "skeleton sk-meta-value")
+        tdiv(class = "tags"):
           for i in 1..3:
-            tdiv(class="skeleton sk-pill")
-        section(class="versions"):
+            tdiv(class = "skeleton sk-pill")
+        section(class = "versions"):
           h2:
-            tdiv(class="skeleton sk-title sk-w80")
+            tdiv(class = "skeleton sk-title sk-w80")
           for i in 1..4:
-            tdiv(class="version-row"):
-              tdiv(class="skeleton sk-version-name")
-              tdiv(class="skeleton sk-version-size")
-              tdiv(class="skeleton sk-version-badge")
-              tdiv(class="skeleton sk-download")
+            tdiv(class = "version-row"):
+              tdiv(class = "skeleton sk-version-name")
+              tdiv(class = "skeleton sk-version-size")
+              tdiv(class = "skeleton sk-version-badge")
+              tdiv(class = "skeleton sk-download")
     elif errorMessage != "":
-      tdiv(class="error-status"):
+      tdiv(class = "error-status"):
         p: text errorMessage
-        button(class="retry-btn", onclick=proc() = fetchDetail(currentPkgName)): text "Retry"
+        button(class = "retry-btn", onclick = proc() = fetchDetail(currentPkgName)): text "Retry"
     else:
-      header(class="detail-header"):
+      header(class = "detail-header"):
         h1: text detail.name
         if detail.versions.len > 0:
-          span(class="version-badge"): text detail.versions[0].version
+          span(class = "version-badge"): text detail.versions[0].version
         if totalDownloads > 0:
-          span(class="download-count"): text ($totalDownloads & " downloads")
-      tdiv(class="install-command"):
+          span(class = "download-count"): text ($totalDownloads & " downloads")
+      tdiv(class = "install-command"):
         code: text ("nimble install " & detail.name)
-        button(class="copy-btn", onclick=proc() = copyInstallCommand("nimble install " & detail.name)):
+        button(class = "copy-btn", onclick = proc() = copyInstallCommand("nimble install " & detail.name)):
           if copyFeedback != "" and detail.name == currentPkgName:
             text copyFeedback
           else:
             text "Copy"
       if detail.description != "":
-        p(class="detail-desc"): text detail.description
-      dl(class="detail-meta"):
+        p(class = "detail-desc"): text detail.description
+      dl(class = "detail-meta"):
         if detail.author != "":
           dt: text "Author"
           dd:
             let author = detail.author
-            a(href="#/", class="inline-link", onclick=proc() = clickAuthor(author)): text author
+            a(href = "#/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
         if detail.license != "":
           dt: text "License"
           dd: text detail.license
         if detail.url != "":
           dt: text "URL"
           dd:
-            a(href=cstring(detail.url), target="_blank", rel="noopener"): text detail.url
+            a(href = cstring(detail.url), target = "_blank", rel = "noopener"): text detail.url
       if detail.tags.len > 0:
-        tdiv(class="tags"):
+        tdiv(class = "tags"):
           for t in detail.tags:
             let tagName = t
-            a(href="#/", class="tag", onclick=proc() = clickTag(tagName)): text tagName
-      section(class="versions"):
+            a(href = "#/", class = "tag", onclick = proc() = clickTag(tagName)): text tagName
+      section(class = "versions"):
         h2: text "Versions"
         for v in detail.versions:
-          tdiv(class="version-row"):
-            span(class="version-name"): text v.version
-            span(class="version-size"): text formatSize(v.size)
+          tdiv(class = "version-row"):
+            span(class = "version-name"): text v.version
+            span(class = "version-size"): text formatSize(v.size)
             var vstatus = ""
             var vclass = ""
             for val in validations:
@@ -567,22 +574,86 @@ proc renderPackage(): VNode =
                 vclass = if val.success: "val-pass" else: "val-fail"
                 break
             if vstatus != "":
-              span(class=cstring("validation-badge " & vclass)): text vstatus
+              span(class = cstring("validation-badge " & vclass)): text vstatus
             a(
-              href=cstring("/download/" & detail.name & "/" & v.version),
-              class="download-link",
-              download=""
+              href = cstring("/download/" & detail.name & "/" & v.version),
+              class = "download-link",
+              download = ""
             ): text "Download"
       if readmeContent != "":
-        section(class="readme"):
+        section(class = "readme"):
           h2: text "README"
-          tdiv(class="readme-content", id="readme-content")
+          tdiv(class = "readme-content", id = "readme-content")
 
 proc renderNotFound(): VNode =
-  buildHtml(tdiv(class="page notfound")):
+  buildHtml(tdiv(class = "page notfound")):
     h1: text "404"
     p: text "Page not found."
-    a(href="#/"): text "Return home"
+    a(href = "#/"): text "Return home"
+
+proc renderHelp(): VNode =
+  buildHtml(tdiv(class = "page help-page")):
+    a(href = "#/", class = "back-link"): text "← All packages"
+    tdiv(class = "help-content"):
+      h1: text "Using NSheep with Nimble"
+      p:
+        text "NSheep exposes a nimble-compatible package list at "
+        code: text "/packages.json"
+        text ". Point your nimble client at this server to install packages directly from the registry."
+
+      h2: text "1. Configure Nimble"
+      p:
+        text "Add the following to your nimble config file (typically "
+        code: text "~/.config/nimble/nimble.ini"
+        text " on macOS/Linux or "
+        code: text "%APPDATA%\nimble\nimble.ini"
+        text " on Windows):"
+
+      pre:
+        code(class = "language-ini"): text """[PackageList]
+name = "nsheep"
+url = "http://localhost:8080/packages.json""""
+
+      p:
+        text "Replace "
+        code: text "http://localhost:8080"
+        text " with the actual URL of your NSheep instance. You can add multiple "
+        code: text "url"
+        text " lines if the server is reachable from different addresses."
+
+      h2: text "2. Install Packages"
+      p:
+        text "Once configured, install packages as usual. Nimble will discover them through the NSheep registry:"
+
+      pre:
+        code(class = "language-bash"): text "nimble install karax"
+
+      p:
+        text "NSheep serves pre-built tarballs, so installs are fast and do not depend on GitHub availability."
+
+      h2: text "3. Verify the Endpoint"
+      p:
+        text "You can inspect the raw package list at any time:"
+
+      pre:
+        code(class = "language-bash"): text "curl http://localhost:8080/packages.json | head -n 20"
+
+      h2: text "4. Package List Format"
+      p:
+        text "The "
+        code: text "/packages.json"
+        text " endpoint returns the standard nimble package list format. Each entry uses "
+        code: text "method: \"download\""
+        text " with a URL pointing back to this server's "
+        code: text "/download/:name/:version"
+        text " endpoint."
+
+      h2: text "Tips"
+      ul:
+        li: text "Nimble merges package lists, so you can keep the official list alongside NSheep if desired."
+        li: text "Set a GitHub token in cfg.yaml to increase rate limits for the background fetcher."
+        li: text "Use the download endpoint directly to fetch specific versions without nimble."
+
 
 proc postRender() =
   if readmeContent != "":
@@ -612,16 +683,20 @@ proc postRender() =
           discard prism.highlightAllUnder(el)
 
 proc render(): VNode =
-  buildHtml(tdiv(class="app")):
-    header(class="site-header"):
-      tdiv(class="header-inner"):
-        a(href="#/", class="logo"): text "NSheep"
-        button(class="theme-toggle", ariaLabel=cstring(if darkMode: "Switch to light mode" else: "Switch to dark mode"), onclick=proc() = toggleDarkMode()):
-          text (if darkMode: "☀" else: "☾")
-    main(class="site-main"):
+  buildHtml(tdiv(class = "app")):
+    header(class = "site-header"):
+      tdiv(class = "header-inner"):
+        a(href = "#/", class = "logo"): text "NSheep"
+        nav(class = "header-nav"):
+          a(href = "#/help", class = "nav-link"): text "Help"
+          button(class = "theme-toggle", ariaLabel = cstring(
+              if darkMode: "Switch to light mode" else: "Switch to dark mode"), onclick = proc() = toggleDarkMode()):
+            text (if darkMode: "☀" else: "☾")
+    main(class = "site-main"):
       case currentView
       of vHome: renderHome()
       of vPackage: renderPackage()
+      of vHelp: renderHelp()
       of vNotFound: renderNotFound()
 
 # --- Helpers ---
@@ -638,5 +713,7 @@ of vHome:
   fetchSummaries()
 of vPackage:
   fetchDetail(currentPkgName)
+of vHelp:
+  discard
 of vNotFound:
   discard

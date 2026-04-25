@@ -38,6 +38,7 @@ fetcher:
   interval: 3600        # Seconds between fetch cycles (default: 1 hour)
   maxPackages: 0        # Max packages per cycle (0 = unlimited)
   filterPatterns: []    # Only fetch packages matching these patterns (empty = all)
+  skipRecentHours: 6    # Skip packages processed within N hours (0 = disabled)
 
 validator:
   enabled: true         # Enable Docker validation

@@ -101,7 +101,7 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): bool =
   # Then ingest
   for attempt in 1..MaxRetries:
     try:
-      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name)
+      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags)
       return true
     except CatchableError as e:
       warn "Ingest failed", repo = pkg.repo.path, attempt = attempt, error = e.msg

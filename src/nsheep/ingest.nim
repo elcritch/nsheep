@@ -51,7 +51,8 @@ proc ingest*(
   client: var VcsClient,
   store: DbStorage,
   repo: RepoRef,
-  canonicalName: string = ""
+  canonicalName: string = "",
+  tags: seq[string] = @[]
 ): Package {.raises: [IngestError, VcsError, StorageError, PuppyError, CatchableError, Exception].} =
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
@@ -99,7 +100,7 @@ proc ingest*(
     author: nimbleData.getOrDefault("author", repo.path.split('/')[^2]),
     license: nimbleData.getOrDefault("license", "Unknown"),
     url: repo.url,
-    tags: @[],
+    tags: tags,
     versions: @[],
     createdAt: now(),
     updatedAt: updatedAt
@@ -178,7 +179,7 @@ proc ingest*(
     author: placeholderPkg.author,
     license: placeholderPkg.license,
     url: repo.url,
-    tags: @[],
+    tags: tags,
     versions: versions,
     createdAt: placeholderPkg.createdAt,
     updatedAt: updatedAt
@@ -219,5 +220,5 @@ proc updatePackage*(
   if repoOpt.isNone:
     raise newException(IngestError, "cannot parse repository URL: " & existing.url)
 
-  # Re-ingest using the existing canonical name
-  result = ingest(client, store, repoOpt.get(), $name)
+  # Re-ingest using the existing canonical name and preserving tags
+  result = ingest(client, store, repoOpt.get(), $name, existing.tags)

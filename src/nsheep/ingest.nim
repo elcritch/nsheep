@@ -71,9 +71,37 @@ proc ingest*(
     raise newException(NoVersionsError, "repository has no releases and no head: " & repo.path)
   info "Fetched head", repo = repo.path
 
-  # 4. Parse releases into versions
+  # 4. Fetch nimble file early so we know the canonical package name
+  let latestTag = if releases.len > 0: releases[0].tag else: "HEAD"
+  let nimbleOpt = fetchNimbleFile(client, repo, latestTag)
+
+  var nimbleData = initTable[string, string]()
+  if nimbleOpt.isSome:
+    nimbleData = parseNimbleDump(nimbleOpt.get(), repo.path.split('/')[^1])
+
+  # 5. Determine canonical package name
+  let repoName = repo.path.split('/')[^1]
+  let pkgName = try:
+    initPackageName(nimbleData.getOrDefault("name", repoName))
+  except ValueError:
+    initPackageName(repoName)
+
+  # 6. Ensure package row exists BEFORE storing versions
+  let placeholderPkg = Package(
+    name: pkgName,
+    description: nimbleData.getOrDefault("description", description),
+    author: nimbleData.getOrDefault("author", repo.path.split('/')[^2]),
+    license: nimbleData.getOrDefault("license", "Unknown"),
+    url: repo.url,
+    tags: @[],
+    versions: @[],
+    createdAt: now(),
+    updatedAt: updatedAt
+  )
+  storePackage(store, placeholderPkg)
+
+  # 7. Parse releases into versions
   var versions = newSeq[PackageVersion]()
-  let repoPkgName = initPackageName(repo.path.split('/')[^1])
 
   # Process semver releases
   for rel in releases:
@@ -84,7 +112,7 @@ proc ingest*(
     let ver = optVer.get()
 
     # Check if already have this version
-    if versionExists(store, repoPkgName, ver):
+    if versionExists(store, pkgName, ver):
       # Already cached - just load metadata
       continue
 
@@ -96,7 +124,7 @@ proc ingest*(
     let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
 
     # Store version with tarball
-    storeVersion(store, repoPkgName, ver, tarballBytes, checksum, rel.publishedAt)
+    storeVersion(store, pkgName, ver, tarballBytes, checksum, rel.publishedAt)
 
     versions.add(PackageVersion(
       version: ver,
@@ -113,7 +141,7 @@ proc ingest*(
 
   let tarballBytes = downloadTarball(client, repo, rel)
   let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
-  storeVersion(store, repoPkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
+  storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
 
   versions.add(PackageVersion(
     version: headSemVer,
@@ -126,37 +154,20 @@ proc ingest*(
 
   info "Downloaded versions", count = versions.len
 
-  # 5. Fetch nimble file for metadata
-  let latestTag = if releases.len > 0: releases[0].tag else: "HEAD"
-  let nimbleOpt = fetchNimbleFile(client, repo, latestTag)
-
-  var nimbleData = initTable[string, string]()
-  if nimbleOpt.isSome:
-    nimbleData = parseNimbleDump(nimbleOpt.get(), repo.path.split('/')[^1])
-
-  # 6. Build package
-  let repoName = repo.path.split('/')[^1]
-  let pkgName = try:
-    initPackageName(nimbleData.getOrDefault("name", repoName))
-  except ValueError:
-    initPackageName(repoName)
-
+  # 8. Build final package (versions only affect the return value; DB already has them)
   let pkg = Package(
     name: pkgName,
-    description: nimbleData.getOrDefault("description", description),
-    author: nimbleData.getOrDefault("author", repo.path.split('/')[^2]),
-    license: nimbleData.getOrDefault("license", "Unknown"),
+    description: placeholderPkg.description,
+    author: placeholderPkg.author,
+    license: placeholderPkg.license,
     url: repo.url,
     tags: @[],
     versions: versions,
-    createdAt: now(),
+    createdAt: placeholderPkg.createdAt,
     updatedAt: updatedAt
   )
 
-  # 7. Persist
-  storePackage(store, pkg)
-
-  # 8. Fetch and store READMEs
+  # 9. Fetch and store READMEs
   let readmeContent = fetchReadme(client, repo, "HEAD")
   if readmeContent != "":
     storeReadme(store, pkg.name.string, "#head", readmeContent)

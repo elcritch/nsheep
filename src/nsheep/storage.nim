@@ -3,7 +3,7 @@
 ## SQLite for metadata, filesystem for tarballs
 ##
 
-import std/[times, os, strutils, sequtils, json, options]
+import std/[times, os, strutils, sequtils, json, options, tables, algorithm]
 import tiny_sqlite
 import chronicles
 import nsheep/types
@@ -521,6 +521,155 @@ proc getTotalDownloads*(s: DbStorage, pkgName: string): int =
     result = row.get()[0].intVal.int
   else:
     result = 0
+
+# --- Stats Operations ---
+
+type
+  PackageStats* = object
+    totalPackages*: int
+    totalAuthors*: int
+    totalDownloads*: int
+
+  TopPackage* = object
+    name*: string
+    downloads*: int
+
+  RecentPackage* = object
+    name*: string
+    description*: string
+    author*: string
+    createdAt*: string
+
+  TopAuthor* = object
+    name*: string
+    packageCount*: int
+
+  LicenseDist* = object
+    license*: string
+    count*: int
+
+  HostDist* = object
+    host*: string
+    count*: int
+
+  TopTag* = object
+    tag*: string
+    count*: int
+
+proc getPackageStats*(s: DbStorage): PackageStats =
+  ## Get core package-level stats
+  let pkgRow = s.db.one("SELECT COUNT(*), COUNT(DISTINCT author) FROM packages")
+  if pkgRow.isSome:
+    result.totalPackages = pkgRow.get()[0].intVal.int
+    result.totalAuthors = pkgRow.get()[1].intVal.int
+
+  let dlRow = s.db.one("SELECT COALESCE(SUM(downloads), 0) FROM download_stats")
+  if dlRow.isSome:
+    result.totalDownloads = dlRow.get()[0].intVal.int
+
+proc getTopPackagesByDownloads*(s: DbStorage, limit: int = 10): seq[TopPackage] =
+  ## Get packages with most total downloads
+  for row in s.db.all("""
+    SELECT package_name, SUM(downloads) as total
+    FROM download_stats
+    GROUP BY package_name
+    ORDER BY total DESC
+    LIMIT ?
+  """, limit.int64):
+    result.add(TopPackage(
+      name: row[0].strVal,
+      downloads: row[1].intVal.int
+    ))
+
+proc getRecentPackages*(s: DbStorage, limit: int = 10): seq[RecentPackage] =
+  ## Get most recently added packages
+  for row in s.db.all("""
+    SELECT name, description, author, created_at
+    FROM packages
+    ORDER BY created_at DESC
+    LIMIT ?
+  """, limit.int64):
+    result.add(RecentPackage(
+      name: row[0].strVal,
+      description: if row[1].kind == sqliteNull: "" else: row[1].strVal,
+      author: if row[2].kind == sqliteNull: "" else: row[2].strVal,
+      createdAt: if row[3].kind == sqliteNull: "" else: row[3].strVal
+    ))
+
+proc getTopAuthors*(s: DbStorage, limit: int = 10): seq[TopAuthor] =
+  ## Get authors with most packages
+  for row in s.db.all("""
+    SELECT author, COUNT(*) as cnt
+    FROM packages
+    WHERE author IS NOT NULL AND author != ''
+    GROUP BY author
+    ORDER BY cnt DESC
+    LIMIT ?
+  """, limit.int64):
+    result.add(TopAuthor(
+      name: row[0].strVal,
+      packageCount: row[1].intVal.int
+    ))
+
+proc getLicenseDistribution*(s: DbStorage): seq[LicenseDist] =
+  ## Get license distribution (group empty/unknown together)
+  for row in s.db.all("""
+    SELECT CASE
+      WHEN license IS NULL OR license = '' OR license = 'Unknown' THEN 'Unknown'
+      ELSE license
+    END as lic, COUNT(*) as cnt
+    FROM packages
+    GROUP BY lic
+    ORDER BY cnt DESC
+  """):
+    result.add(LicenseDist(
+      license: row[0].strVal,
+      count: row[1].intVal.int
+    ))
+
+proc getHostDistribution*(s: DbStorage): seq[HostDist] =
+  ## Get host distribution from URL prefixes
+  for row in s.db.all("""
+    SELECT CASE
+      WHEN url LIKE 'https://github.com%' THEN 'GitHub'
+      WHEN url LIKE 'https://gitlab.com%' THEN 'GitLab'
+      WHEN url LIKE 'https://codeberg.org%' THEN 'Codeberg'
+      WHEN url LIKE 'https://bitbucket.org%' THEN 'Bitbucket'
+      WHEN url LIKE 'https://git.sr.ht%' THEN 'SourceHut'
+      ELSE 'Other'
+    END as host, COUNT(*) as cnt
+    FROM packages
+    GROUP BY host
+    ORDER BY cnt DESC
+  """):
+    result.add(HostDist(
+      host: row[0].strVal,
+      count: row[1].intVal.int
+    ))
+
+proc cmpTopTagDesc(a, b: TopTag): int = cmp(b.count, a.count)
+
+proc getTopTags*(s: DbStorage, limit: int = 20): seq[TopTag] =
+  ## Get most common tags
+  ## SQLite doesn't have JSON array unpacking, so we parse in application code
+  var tagCounts = initTable[string, int]()
+  for row in s.db.all("SELECT tags FROM packages WHERE tags IS NOT NULL AND tags != '' AND tags != '[]'"):
+    let tagsStr = row[0].strVal
+    try:
+      let tagsJson = parseJson(tagsStr)
+      for t in tagsJson:
+        let tag = t.getStr()
+        if tag.len > 0:
+          tagCounts[tag] = tagCounts.getOrDefault(tag, 0) + 1
+    except:
+      discard
+
+  for tag, count in tagCounts:
+    result.add(TopTag(tag: tag, count: count))
+
+  algorithm.sort(result, cmpTopTagDesc)
+  if result.len > limit:
+    result = result[0..<limit]
 
 # --- README Operations ---
 

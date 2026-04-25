@@ -1,11 +1,11 @@
-import karax / [vdom, kdom, karax, karaxdsl, jjson, kajax, localstorage]
+import karax / [vdom, kdom, karax, karaxdsl, jjson, kajax, localstorage, vstyles]
 import strutils, jsffi, algorithm
 
 # --- Types ---
 
 type
   View = enum
-    vHome, vPackage, vHelp, vNotFound
+    vHome, vPackage, vHelp, vStats, vNotFound
 
   SortOrder = enum
     soUpdatedDesc, soPublishedDesc
@@ -40,6 +40,40 @@ type
     tags: seq[string]
     versions: seq[VersionInfo]
 
+  TopDownloaded = object
+    name: string
+    downloads: int
+
+  TopAuthor = object
+    name: string
+    packageCount: int
+
+  LicenseItem = object
+    license: string
+    count: int
+
+  HostItem = object
+    host: string
+    count: int
+
+  TagItem = object
+    tag: string
+    count: int
+
+  BarItem = object
+    label: string
+    count: int
+
+  StatsData = object
+    totalPackages: int
+    totalAuthors: int
+    totalDownloads: int
+    topDownloaded: seq[TopDownloaded]
+    topAuthors: seq[TopAuthor]
+    licenses: seq[LicenseItem]
+    hosts: seq[HostItem]
+    topTags: seq[TagItem]
+
 # --- State ---
 
 const pageSize = 50
@@ -65,6 +99,7 @@ var
   currentSort = soPublishedDesc
   totalPackages = 0
   currentPage = 1
+  statsData: StatsData
 
 # --- Forward Declarations ---
 
@@ -73,6 +108,7 @@ proc fetchDetail(name: string)
 proc fetchValidations(name: string)
 proc fetchReadme(name: string)
 proc fetchDownloads(name: string)
+proc fetchStats()
 proc applyFilters()
 proc clearAllFilters()
 
@@ -87,6 +123,8 @@ proc parseHash(): View =
     currentPkgName = h[10..^1]
   elif h == "#/help":
     result = vHelp
+  elif h == "#/stats":
+    result = vStats
   else:
     result = vNotFound
 
@@ -106,6 +144,8 @@ proc onHashChange(ev: Event) =
       redraw()
   of vPackage:
     fetchDetail(currentPkgName)
+  of vStats:
+    fetchStats()
   of vHelp:
     loading = false
     redraw()
@@ -198,6 +238,66 @@ proc fetchDownloads(name: string) =
     for item in data:
       totalDownloads += item["downloads"].getInt()
     redraw()
+
+proc fetchStats() =
+  loading = true
+  errorMessage = ""
+  fetchJson(cstring("/api/v1/stats"),
+    proc (data: JsonNode) =
+    loading = false
+    var topDl: seq[TopDownloaded] = @[]
+    if data.hasField("topDownloaded"):
+      for item in data["topDownloaded"]:
+        topDl.add(TopDownloaded(
+          name: $item["name"].getStr(),
+          downloads: item["downloads"].getInt()
+        ))
+
+    var authors: seq[TopAuthor] = @[]
+    if data.hasField("topAuthors"):
+      for item in data["topAuthors"]:
+        authors.add(TopAuthor(
+          name: $item["name"].getStr(),
+          packageCount: item["packageCount"].getInt()
+        ))
+
+    var licenses: seq[LicenseItem] = @[]
+    if data.hasField("licenses"):
+      for item in data["licenses"]:
+        licenses.add(LicenseItem(
+          license: $item["license"].getStr(),
+          count: item["count"].getInt()
+        ))
+
+    var hosts: seq[HostItem] = @[]
+    if data.hasField("hosts"):
+      for item in data["hosts"]:
+        hosts.add(HostItem(
+          host: $item["host"].getStr(),
+          count: item["count"].getInt()
+        ))
+
+    var tags: seq[TagItem] = @[]
+    if data.hasField("topTags"):
+      for item in data["topTags"]:
+        tags.add(TagItem(
+          tag: $item["tag"].getStr(),
+          count: item["count"].getInt()
+        ))
+
+    statsData = StatsData(
+      totalPackages: if data.hasField("totalPackages"): data["totalPackages"].getInt() else: 0,
+      totalAuthors: if data.hasField("totalAuthors"): data["totalAuthors"].getInt() else: 0,
+      totalDownloads: if data.hasField("totalDownloads"): data["totalDownloads"].getInt() else: 0,
+      topDownloaded: topDl,
+      topAuthors: authors,
+      licenses: licenses,
+      hosts: hosts,
+      topTags: tags
+    )
+    redraw(),
+    "Failed to load stats. Please try again."
+  )
 
 proc fetchDetail(name: string) =
   loading = true
@@ -654,6 +754,118 @@ url = "http://localhost:8080/packages.json""""
         li: text "Set a GitHub token in cfg.yaml to increase rate limits for the background fetcher."
         li: text "Use the download endpoint directly to fetch specific versions without nimble."
 
+proc renderBar(items: seq[BarItem], maxVal: int, colorClass: string): VNode =
+  result = buildHtml(tdiv(class = "bar-chart")):
+    for it in items:
+      let pct = if maxVal > 0: int(it.count.float / maxVal.float * 100.0) else: 0
+      tdiv(class = "bar-row"):
+        tdiv(class = "bar-label"):
+          text it.label
+        tdiv(class = "bar-track"):
+          tdiv(class = cstring("bar-fill " & colorClass), style = style(width, cstring($pct & "%")))
+        tdiv(class = "bar-value"):
+          text $it.count
+
+proc buildBars(downloads: seq[TopDownloaded]): (seq[BarItem], int) =
+  var maxVal = 1
+  for it in downloads:
+    if it.downloads > maxVal: maxVal = it.downloads
+  var bars: seq[BarItem] = @[]
+  for it in downloads:
+    bars.add(BarItem(label: it.name, count: it.downloads))
+  result = (bars, maxVal)
+
+proc buildBars(authors: seq[TopAuthor]): (seq[BarItem], int) =
+  var maxVal = 1
+  for it in authors:
+    if it.packageCount > maxVal: maxVal = it.packageCount
+  var bars: seq[BarItem] = @[]
+  for it in authors:
+    bars.add(BarItem(label: it.name, count: it.packageCount))
+  result = (bars, maxVal)
+
+proc buildBars(licenses: seq[LicenseItem]): (seq[BarItem], int) =
+  var maxVal = 1
+  for it in licenses:
+    if it.count > maxVal: maxVal = it.count
+  var bars: seq[BarItem] = @[]
+  for it in licenses:
+    bars.add(BarItem(label: it.license, count: it.count))
+  result = (bars, maxVal)
+
+proc buildBars(hosts: seq[HostItem]): (seq[BarItem], int) =
+  var maxVal = 1
+  for it in hosts:
+    if it.count > maxVal: maxVal = it.count
+  var bars: seq[BarItem] = @[]
+  for it in hosts:
+    bars.add(BarItem(label: it.host, count: it.count))
+  result = (bars, maxVal)
+
+proc renderStats(): VNode =
+  result = buildHtml(tdiv):
+    tdiv(class = "stats-container"):
+      h1: text "Registry Statistics"
+
+      tdiv(class = "stats-metrics"):
+        tdiv(class = "stat-card"):
+          tdiv(class = "stat-number"):
+            text $statsData.totalPackages
+          tdiv(class = "stat-label"):
+            text "Packages"
+        tdiv(class = "stat-card"):
+          tdiv(class = "stat-number"):
+            text $statsData.totalAuthors
+          tdiv(class = "stat-label"):
+            text "Authors"
+        tdiv(class = "stat-card"):
+          tdiv(class = "stat-number"):
+            text $statsData.totalDownloads
+          tdiv(class = "stat-label"):
+            text "Downloads"
+
+      tdiv(class = "stats-grid"):
+        tdiv(class = "stats-panel"):
+          h2: text "Top Downloaded"
+          if statsData.topDownloaded.len == 0:
+            p(class = "empty-text"): text "No download data yet."
+          else:
+            let (bars, maxDl) = buildBars(statsData.topDownloaded)
+            renderBar(bars, maxDl, "bar-downloads")
+
+        tdiv(class = "stats-panel"):
+          h2: text "Top Authors"
+          if statsData.topAuthors.len == 0:
+            p(class = "empty-text"): text "No author data yet."
+          else:
+            let (bars, maxAuth) = buildBars(statsData.topAuthors)
+            renderBar(bars, maxAuth, "bar-authors")
+
+        tdiv(class = "stats-panel"):
+          h2: text "Licenses"
+          if statsData.licenses.len == 0:
+            p(class = "empty-text"): text "No license data yet."
+          else:
+            let (bars, maxLic) = buildBars(statsData.licenses)
+            renderBar(bars, maxLic, "bar-licenses")
+
+        tdiv(class = "stats-panel"):
+          h2: text "Hosts"
+          if statsData.hosts.len == 0:
+            p(class = "empty-text"): text "No host data yet."
+          else:
+            let (bars, maxHost) = buildBars(statsData.hosts)
+            renderBar(bars, maxHost, "bar-hosts")
+
+        tdiv(class = "stats-panel stats-panel-wide"):
+          h2: text "Top Tags"
+          if statsData.topTags.len == 0:
+            p(class = "empty-text"): text "No tag data yet."
+          else:
+            tdiv(class = "tag-cloud"):
+              for it in statsData.topTags:
+                span(class = "tag-pill"):
+                  text it.tag & " (" & $it.count & ")"
 
 proc postRender() =
   if readmeContent != "":
@@ -688,6 +900,7 @@ proc render(): VNode =
       tdiv(class = "header-inner"):
         a(href = "#/", class = "logo"): text "NSheep"
         nav(class = "header-nav"):
+          a(href = "#/stats", class = "nav-link"): text "Stats"
           a(href = "#/help", class = "nav-link"): text "Help"
           button(class = "theme-toggle", ariaLabel = cstring(
               if darkMode: "Switch to light mode" else: "Switch to dark mode"), onclick = proc() = toggleDarkMode()):
@@ -697,6 +910,7 @@ proc render(): VNode =
       of vHome: renderHome()
       of vPackage: renderPackage()
       of vHelp: renderHelp()
+      of vStats: renderStats()
       of vNotFound: renderNotFound()
 
 # --- Helpers ---
@@ -715,5 +929,7 @@ of vPackage:
   fetchDetail(currentPkgName)
 of vHelp:
   discard
+of vStats:
+  fetchStats()
 of vNotFound:
   discard

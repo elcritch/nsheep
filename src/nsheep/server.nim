@@ -292,6 +292,48 @@ proc handleDownloads(state: ptr ServerState): RequestHandler =
 
     sendJson(request, arr, cacheSeconds = 0)
 
+proc handleStats(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    let stats = getPackageStats(state.store)
+    let topDownloaded = getTopPackagesByDownloads(state.store, 10)
+    let topAuthors = getTopAuthors(state.store, 10)
+    let licenses = getLicenseDistribution(state.store)
+    let hosts = getHostDistribution(state.store)
+    let topTags = getTopTags(state.store, 20)
+
+    var topDlJson = newJArray()
+    for p in topDownloaded:
+      topDlJson.add(%*{"name": p.name, "downloads": p.downloads})
+
+    var authorsJson = newJArray()
+    for a in topAuthors:
+      authorsJson.add(%*{"name": a.name, "packageCount": a.packageCount})
+
+    var licensesJson = newJArray()
+    for l in licenses:
+      licensesJson.add(%*{"license": l.license, "count": l.count})
+
+    var hostsJson = newJArray()
+    for h in hosts:
+      hostsJson.add(%*{"host": h.host, "count": h.count})
+
+    var tagsJson = newJArray()
+    for t in topTags:
+      tagsJson.add(%*{"tag": t.tag, "count": t.count})
+
+    let body = %*{
+      "totalPackages": stats.totalPackages,
+      "totalAuthors": stats.totalAuthors,
+      "totalDownloads": stats.totalDownloads,
+      "topDownloaded": topDlJson,
+      "topAuthors": authorsJson,
+      "licenses": licensesJson,
+      "hosts": hostsJson,
+      "topTags": tagsJson
+    }
+
+    sendJson(request, body, cacheSeconds = 300)
+
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
@@ -386,6 +428,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages/@name/validations", handleValidations(state))
   router.get("/api/v1/packages/@name/readme", handleReadme(state))
   router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
+  router.get("/api/v1/stats", handleStats(state))
   router.get("/download/@name/@version", handleDownload(state))
 
   # Static frontend assets

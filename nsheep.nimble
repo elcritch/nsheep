@@ -15,8 +15,13 @@ requires "puppy >= 2.1.0"
 requires "chronicles >= 0.10.0"
 requires "yaml >= 2.0.0"
 requires "tiny_sqlite >= 0.2.0"
-requires "karax >= 1.3.0"
 
+task frontend, "Build frontend assets":
+  exec "nimble install karax -y"
+  exec "mkdir -p public"
+  exec "nim js -d:release -o:public/app.js frontend/app.nim"
+  exec "cp frontend/index.html public/"
+  exec "cp frontend/app.css public/"
 
 task test, "Run tests":
   echo "No tests configured"

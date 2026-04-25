@@ -114,27 +114,27 @@ proc clearAllFilters()
 
 # --- Routing ---
 
-proc parseHash(): View =
-  let h = $kdom.window.location.hash
-  if h == "" or h == "#" or h == "#/":
+proc parsePath(): View =
+  let p = $kdom.window.location.pathname
+  if p == "" or p == "/":
     result = vHome
-  elif h.startsWith("#/package/"):
+  elif p.startsWith("/package/"):
     result = vPackage
-    currentPkgName = h[10..^1]
-  elif h == "#/help":
+    currentPkgName = p[9..^1]
+  elif p == "/help":
     result = vHelp
-  elif h == "#/stats":
+  elif p == "/stats":
     result = vStats
   else:
     result = vNotFound
 
 proc updateRoute() =
-  currentView = parseHash()
+  currentView = parsePath()
 
-proc setHash(hash: cstring) =
-  kdom.window.location.hash = hash
-
-proc onHashChange(ev: Event) =
+proc navigateTo(path: cstring) =
+  let hist = cast[JsObject](kdom.window)["history"]
+  if hist != nil:
+    discard hist.call("pushState", jsNull, path, path)
   updateRoute()
   case currentView
   of vHome:
@@ -150,7 +150,43 @@ proc onHashChange(ev: Event) =
     loading = false
     redraw()
   of vNotFound:
+    loading = false
     redraw()
+
+proc onPopState(ev: Event) =
+  updateRoute()
+  case currentView
+  of vHome:
+    if summaries.len == 0:
+      fetchSummaries()
+    else:
+      redraw()
+  of vPackage:
+    fetchDetail(currentPkgName)
+  of vStats:
+    fetchStats()
+  of vHelp:
+    loading = false
+    redraw()
+  of vNotFound:
+    loading = false
+    redraw()
+
+proc onLinkClick(ev: Event) =
+  ## Intercept clicks on internal links to use history API instead of full reload
+  var el = cast[Element](ev.target)
+  while el != nil and el.nodeName != cstring"A":
+    el = el.parentElement
+  if el == nil:
+    return
+  let href = $(el.getAttribute("href"))
+  if href.len == 0 or not href.startsWith("/"):
+    return
+  # Skip API and direct download links
+  if href.startsWith("/api/") or href.startsWith("/download/") or href == "/packages.json":
+    return
+  ev.preventDefault()
+  navigateTo(cstring(href))
 
 # --- Data Fetching ---
 
@@ -400,12 +436,12 @@ proc onSearchInput(ev: Event; target: VNode) =
 proc clickAuthor(author: string) =
   activeAuthor = author
   applyFilters()
-  setHash(cstring"#/")
+  navigateTo(cstring"/")
 
 proc clickTag(tag: string) =
   activeTag = tag
   applyFilters()
-  setHash(cstring"#/")
+  navigateTo(cstring"/")
 
 proc clearAuthor() =
   activeAuthor = ""
@@ -526,7 +562,7 @@ proc renderHome(): VNode =
           article(class = "package-item"):
             header(class = "package-header"):
               h2:
-                a(href = cstring("#/package/" & s.name)): text s.name
+                a(href = cstring("/package/" & s.name)): text s.name
               if s.latestVersion != "":
                 span(class = "version-badge"): text s.latestVersion
             if s.description != "":
@@ -535,7 +571,7 @@ proc renderHome(): VNode =
               p(class = "package-meta"):
                 text "By "
                 let author = s.author
-                a(href = "#/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
+                a(href = "/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
       if summaries.len < totalPackages:
         tdiv(class = "load-more-wrap"):
           button(class = "load-more-btn", disabled = loading, onclick = proc() =
@@ -592,7 +628,7 @@ proc toggleDarkMode() =
 
 proc renderPackage(): VNode =
   buildHtml(tdiv(class = "page package-detail")):
-    a(href = "#/", class = "back-link"): text "← All packages"
+    a(href = "/", class = "back-link"): text "← All packages"
     if loading:
       tdiv(class = "package-skeleton"):
         tdiv(class = "back-link"):
@@ -647,7 +683,7 @@ proc renderPackage(): VNode =
           dt: text "Author"
           dd:
             let author = detail.author
-            a(href = "#/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
+            a(href = "/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
         if detail.license != "":
           dt: text "License"
           dd: text detail.license
@@ -659,7 +695,7 @@ proc renderPackage(): VNode =
         tdiv(class = "tags"):
           for t in detail.tags:
             let tagName = t
-            a(href = "#/", class = "tag", onclick = proc() = clickTag(tagName)): text tagName
+            a(href = "/", class = "tag", onclick = proc() = clickTag(tagName)): text tagName
       section(class = "versions"):
         h2: text "Versions"
         for v in detail.versions:
@@ -689,11 +725,11 @@ proc renderNotFound(): VNode =
   buildHtml(tdiv(class = "page notfound")):
     h1: text "404"
     p: text "Page not found."
-    a(href = "#/"): text "Return home"
+    a(href = "/"): text "Return home"
 
 proc renderHelp(): VNode =
   buildHtml(tdiv(class = "page help-page")):
-    a(href = "#/", class = "back-link"): text "← All packages"
+    a(href = "/", class = "back-link"): text "← All packages"
     tdiv(class = "help-content"):
       h1: text "Using NSheep with Nimble"
       p:
@@ -898,10 +934,10 @@ proc render(): VNode =
   buildHtml(tdiv(class = "app")):
     header(class = "site-header"):
       tdiv(class = "header-inner"):
-        a(href = "#/", class = "logo"): text "NSheep"
+        a(href = "/", class = "logo"): text "NSheep"
         nav(class = "header-nav"):
-          a(href = "#/stats", class = "nav-link"): text "Stats"
-          a(href = "#/help", class = "nav-link"): text "Help"
+          a(href = "/stats", class = "nav-link"): text "Stats"
+          a(href = "/help", class = "nav-link"): text "Help"
           button(class = "theme-toggle", ariaLabel = cstring(
               if darkMode: "Switch to light mode" else: "Switch to dark mode"), onclick = proc() = toggleDarkMode()):
             text (if darkMode: "☀" else: "☾")
@@ -919,7 +955,8 @@ proc render(): VNode =
 
 setRenderer render, cstring"ROOT", postRender
 loadTheme()
-kdom.window.addEventListener("hashchange", onHashChange)
+kdom.window.addEventListener("popstate", onPopState)
+kdom.document.addEventListener("click", onLinkClick)
 kdom.document.addEventListener("keydown", onKeyDown)
 updateRoute()
 case currentView

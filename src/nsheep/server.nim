@@ -435,6 +435,9 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/", serveIndex(state))
   router.get("/app.js", serveStaticFile(state, "app.js"))
   router.get("/app.css", serveStaticFile(state, "app.css"))
+  
+  # SPA catch-all: serve index.html for any non-API route
+  router.get("/**", serveIndex(state))
 
   # CORS preflight
   router.options("/*", proc(request: Request) =

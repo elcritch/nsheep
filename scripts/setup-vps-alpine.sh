@@ -112,7 +112,7 @@ fetcher:
   filterPatterns: []
 
 validator:
-  enabled: false
+  enabled: true
   dockerImage: "nimlang/nim:latest"
   timeout: 300
   required: false

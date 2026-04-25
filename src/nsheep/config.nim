@@ -14,6 +14,7 @@ type
     bindAddr*: string
     port*: int
     publicDir*: string
+    baseUrl*: string       # Public URL for generating download links (e.g. "https://nsheep.example.com")
 
   GitHubConfig* = object
     token*: string

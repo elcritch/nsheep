@@ -25,6 +25,7 @@ This document describes the technical architecture and design decisions behind N
 | Endpoint | Method | Description | Cache |
 |----------|--------|-------------|-------|
 | `/health` | GET | Health check | none |
+| `/packages.json` | GET | Nimble-compatible package list | 5 min |
 | `/api/v1/packages` | GET | List all packages | 5 min |
 | `/api/v1/packages/:name` | GET | Get package details | 1 hour |
 | `/download/:name/:version` | GET | Download tarball | 1 year (immutable) |
@@ -118,7 +119,7 @@ data/
 User: nimble install jester
        │
        ▼
-Nimble: GET nsheep.example.com/packages.json (optional proxy)
+Nimble: GET nsheep.example.com/packages.json
         │
         ▼
 Nimble: GET nsheep.example.com/download/jester/0.6.0

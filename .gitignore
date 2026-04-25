@@ -43,3 +43,5 @@ logs/
 # Build
 dist/
 build/
+nimble.develop
+nimbledeps

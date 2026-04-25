@@ -5,6 +5,7 @@ server:
   bindAddr: "127.0.0.1"
   port: 8080
   publicDir: "./public"   # Directory for frontend static assets
+  baseUrl: ""             # Public URL for packages.json download links (auto-detected from Host header if empty)
 
 github:
   token: ""  # Optional: GitHub API token for higher rate limits

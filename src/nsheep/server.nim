@@ -52,6 +52,45 @@ proc sendJson(request: Request, data: JsonNode, cacheSeconds: int = 0) =
 
 # --- Handlers ---
 
+proc baseUrl(state: ptr ServerState, request: Request): string =
+  ## Resolve public base URL: config override, then Host header, then fallback
+  if state.cfg.server.baseUrl.len > 0:
+    return state.cfg.server.baseUrl
+  if "Host" in request.headers:
+    return "http://" & request.headers["Host"]
+  return "http://" & state.cfg.server.bindAddr & ":" & $state.cfg.server.port
+
+proc handlePackagesJson(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    let summaries = listPackageSummaries(state.store)
+    let pubUrl = baseUrl(state, request)
+    
+    var arr = newJArray()
+    for s in summaries:
+      if s.latestVersion.len == 0:
+        continue  # Skip packages with no downloadable versions
+      
+      var tags = newJArray()
+      for t in s.tags:
+        tags.add(% t)
+      
+      arr.add(%*{
+        "name": s.name,
+        "url": pubUrl & "/download/" & s.name & "/" & s.latestVersion,
+        "method": "download",
+        "description": s.description,
+        "license": s.license,
+        "tags": tags,
+        "web": s.url
+      })
+    
+    var headers = emptyHttpHeaders()
+    headers["Content-Type"] = "application/json"
+    headers["Access-Control-Allow-Origin"] = "*"
+    headers["Cache-Control"] = "public, max-age=300"  # 5 min cache
+    addSecurityHeaders(headers)
+    request.respond(200, headers, pretty(arr))
+
 proc handleHealth(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let body = %*{
@@ -335,6 +374,7 @@ proc serveIndex(state: ptr ServerState): RequestHandler =
 
 proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/health", handleHealth(state))
+  router.get("/packages.json", handlePackagesJson(state))
   router.get("/api/v1/packages", handleListPackages(state))
   router.get("/api/v1/packages/@name", handleGetPackage(state))
   # Note: Ingestion is now handled automatically by background fetcher

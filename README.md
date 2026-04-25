@@ -99,6 +99,9 @@ storage: local  # "local" or "cloudflare"
 ### GET /health
 Health check.
 
+### GET /packages.json
+Nimble-compatible package list. Each entry uses `method: "download"` with a URL pointing to this server's `/download/:name/:version` endpoint.
+
 ### GET /api/v1/packages
 List all packages.
 

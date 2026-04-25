@@ -134,7 +134,9 @@ proc updateRoute() =
 proc navigateTo(path: cstring) =
   let hist = cast[JsObject](kdom.window)["history"]
   if hist != nil:
-    discard hist.call("pushState", jsNull, path, path)
+    let pushState = hist["pushState"]
+    if pushState != nil:
+      discard pushState.call(hist, jsNull, cstring(""), path)
   updateRoute()
   case currentView
   of vHome:

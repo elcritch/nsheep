@@ -135,22 +135,33 @@ proc ingest*(
       publishedAt: rel.publishedAt
     ))
 
-  # Always process HEAD version (update every time since HEAD changes)
+  # Process HEAD version (skip re-download if fetched within 1 hour)
   let rel = headOpt.get()
   let headSemVer = initSemVer(99999, 99999, 99999)
 
-  let tarballBytes = downloadTarball(client, repo, rel)
-  let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
-  storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
-
-  versions.add(PackageVersion(
-    version: headSemVer,
-    headCommit: "#head",
-    tarballPath: "",
-    checksum: checksum,
-    size: int64(tarballBytes.len),
-    publishedAt: rel.publishedAt
-  ))
+  if not headVersionFetchedRecently(store, pkgName, 1):
+    let tarballBytes = downloadTarball(client, repo, rel)
+    let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+    storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
+    versions.add(PackageVersion(
+      version: headSemVer,
+      headCommit: "#head",
+      tarballPath: "",
+      checksum: checksum,
+      size: int64(tarballBytes.len),
+      publishedAt: rel.publishedAt
+    ))
+    info "Updated head version", repo = repo.path
+  else:
+    info "Head version up to date", repo = repo.path
+    versions.add(PackageVersion(
+      version: headSemVer,
+      headCommit: "#head",
+      tarballPath: "",
+      checksum: initChecksum("0" & repeat('0', 63)),
+      size: 0,
+      publishedAt: rel.publishedAt
+    ))
 
   info "Downloaded versions", count = versions.len
 

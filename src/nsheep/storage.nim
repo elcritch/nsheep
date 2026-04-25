@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS versions (
     checksum TEXT NOT NULL,
     published_at TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
     UNIQUE(package_id, major, minor, patch, head_commit)
 );
@@ -105,12 +106,16 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   # Create tables
   result.db.execScript(Schema)
 
-  # Migration: add head_commit column for existing databases
+  # Migration: add columns for existing databases
   try:
     result.db.exec("ALTER TABLE versions ADD COLUMN head_commit TEXT")
   except:
-    discard # Column already exists
-  
+    discard
+  try:
+    result.db.exec("ALTER TABLE versions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+  except:
+    discard
+
   # Create tarball directory
   createDir(tarballDir)
 
@@ -345,23 +350,25 @@ proc storeVersion*(
   # Store metadata in SQLite
   if headCommit.len > 0:
     s.db.exec("""
-      INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT DO UPDATE SET
         tarball_path = excluded.tarball_path,
         tarball_size = excluded.tarball_size,
         checksum = excluded.checksum,
-        published_at = excluded.published_at
+        published_at = excluded.published_at,
+        updated_at = datetime('now')
     """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum, $publishedAt)
   else:
     s.db.exec("""
-      INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT DO UPDATE SET
         tarball_path = excluded.tarball_path,
         tarball_size = excluded.tarball_size,
         checksum = excluded.checksum,
-        published_at = excluded.published_at
+        published_at = excluded.published_at,
+        updated_at = datetime('now')
     """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, nil, tarPath, tarball.len.int64, $checksum, $publishedAt)
 
 proc loadTarball*(
@@ -418,6 +425,22 @@ proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit:
       WHERE p.name = ? AND v.major = ? AND v.minor = ? AND v.patch = ? AND v.head_commit IS NULL
     """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
   return row.isSome
+
+proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours: int = 1): bool =
+  ## Check if #head was fetched within the given number of hours
+  let row = s.db.one("""
+    SELECT updated_at FROM versions v
+    JOIN packages p ON v.package_id = p.id
+    WHERE p.name = ? AND v.head_commit = '#head'
+    ORDER BY v.updated_at DESC
+    LIMIT 1
+  """, pkgName.string)
+
+  if row.isNone:
+    return false
+
+  let updatedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
+  result = (now() - updatedAt).inHours < withinHours
 
 # --- Validation Result Operations ---
 

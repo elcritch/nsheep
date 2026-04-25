@@ -132,6 +132,13 @@ proc saveCache(cacheDir, key: string, etag, body: string) =
   let path = cachePath(cacheDir, key)
   writeFile(path, etag & "\n" & $getTime().toUnix & "\n" & body)
 
+proc isGitHubUrl(url: string): bool =
+  ## Check if URL points to a GitHub domain
+  url.startsWith("https://github.com") or
+  url.startsWith("https://api.github.com") or
+  url.startsWith("https://raw.githubusercontent.com") or
+  url.startsWith("https://codeload.github.com")
+
 proc makeRequest(
   client: VcsClient,
   url: string,
@@ -139,7 +146,7 @@ proc makeRequest(
   etag: string = ""
 ): tuple[code: int, body: string, etag: string] =
   var reqHeaders = headers
-  if client.token.len > 0:
+  if client.token.len > 0 and isGitHubUrl(url):
     reqHeaders.add(Header(key: "Authorization", value: "Bearer " & client.token))
   if etag.len > 0:
     reqHeaders.add(Header(key: "If-None-Match", value: etag))
@@ -180,7 +187,7 @@ proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
 
 proc downloadHttp*(url, token: string): seq[byte] =
   var headers: seq[Header] = @[Header(key: "User-Agent", value: "nsheep-" & Version)]
-  if token.len > 0:
+  if token.len > 0 and isGitHubUrl(url):
     headers.add(Header(key: "Authorization", value: "Bearer " & token))
   let response = get(url, headers)
   if response.code != 200:

@@ -37,6 +37,7 @@ type
     interval*: int               # Seconds between fetches (default: 3600)
     maxPackages*: int            # Max packages to ingest per cycle (0 = unlimited)
     filterPatterns*: seq[string] # Only fetch packages matching these patterns
+    skipRecentHours*: int        # Skip packages processed within N hours (0 = disabled)
 
   ValidatorConfig* = object
     enabled*: bool       # Enable Docker validation
@@ -130,6 +131,8 @@ proc loadConfig*(path: string): Config =
   var fetcherConfig = raw.fetcher
   if fetcherConfig.interval == 0:
     fetcherConfig.interval = 3600 # 1 hour default
+  if fetcherConfig.skipRecentHours == 0:
+    fetcherConfig.skipRecentHours = 6 # 6 hour default
   
   # Set server defaults
   var serverConfig = raw.server

@@ -21,6 +21,11 @@ type
     running*: bool
     thread*: Thread[Fetcher]
 
+  NimblePkg* = object
+    ## Entry from nimble packages.json — carries the canonical name
+    repo*: RepoRef
+    name*: string
+
 proc defaultFetcherConfig*(): FetcherConfig =
   FetcherConfig(
     interval: DefaultFetchInterval,
@@ -28,7 +33,7 @@ proc defaultFetcherConfig*(): FetcherConfig =
     maxPackages: 0
   )
 
-proc fetchNimblePackages(): seq[RepoRef] =
+proc fetchNimblePackages(): seq[NimblePkg] =
   ## Fetch and parse nimble packages.json
   info "Fetching nimble packages list"
 
@@ -47,49 +52,50 @@ proc fetchNimblePackages(): seq[RepoRef] =
         continue
 
       let url = pkg["url"].getStr()
+      let name = pkg["name"].getStr()
       let repoOpt = vcs.parseRepoUrl(url)
       if repoOpt.isSome:
-        result.add(repoOpt.get())
+        result.add(NimblePkg(repo: repoOpt.get(), name: name))
     except:
       continue
 
   info "Parsed packages", count = result.len
 
-proc ingestPackage(fetcher: Fetcher, repo: RepoRef): bool =
+proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): bool =
   ## Ingest a single package with validation, return true on success
 
   # First validate if enabled
   if fetcher.validatorConfig.enabled:
-    info "Validating package", repo = repo.path
-    let validationResult = validatePackage(fetcher.store, repo.url, repo.path, fetcher.validatorConfig)
+    info "Validating package", repo = pkg.repo.path
+    let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.repo.path, fetcher.validatorConfig)
 
     if not validationResult.overallSuccess:
       if fetcher.validatorConfig.required:
-        error "Validation failed, skipping ingest", repo = repo.path
+        error "Validation failed, skipping ingest", repo = pkg.repo.path
         return false
       else:
-        warn "Validation failed but not required, continuing", repo = repo.path
+        warn "Validation failed but not required, continuing", repo = pkg.repo.path
     else:
-      info "Validation passed", repo = repo.path
+      info "Validation passed", repo = pkg.repo.path
 
   # Then ingest
   for attempt in 1..MaxRetries:
     try:
-      discard ingest(fetcher.vcs, fetcher.store, repo)
+      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name)
       return true
     except CatchableError as e:
-      warn "Ingest failed", repo = repo.path, attempt = attempt, error = e.msg
+      warn "Ingest failed", repo = pkg.repo.path, attempt = attempt, error = e.msg
       if attempt < MaxRetries:
         sleep(1000 * attempt)
 
-  error "Ingest failed permanently", repo = repo.path
+  error "Ingest failed permanently", repo = pkg.repo.path
   return false
 
-proc shouldFetch(fetcher: Fetcher, repo: RepoRef): bool =
+proc shouldFetch(fetcher: Fetcher, pkg: NimblePkg): bool =
   if fetcher.fetcherConfig.filterPatterns.len == 0:
     return true
 
-  let fullName = repo.path
+  let fullName = pkg.repo.path
   for pattern in fetcher.fetcherConfig.filterPatterns:
     if fullName.contains(pattern):
       return true
@@ -98,23 +104,23 @@ proc shouldFetch(fetcher: Fetcher, repo: RepoRef): bool =
 proc runOnce(fetcher: Fetcher) =
   info "Starting fetch cycle"
 
-  let repos = fetchNimblePackages()
+  let pkgs = fetchNimblePackages()
   var successCount = 0
   var failCount = 0
   var skippedCount = 0
   var processedCount = 0
 
-  for repo in repos:
+  for pkg in pkgs:
     if fetcher.fetcherConfig.maxPackages > 0 and processedCount >= fetcher.fetcherConfig.maxPackages:
       break
 
-    if not fetcher.shouldFetch(repo):
+    if not fetcher.shouldFetch(pkg):
       skippedCount.inc
       continue
 
     processedCount.inc
 
-    if ingestPackage(fetcher, repo):
+    if ingestPackage(fetcher, pkg):
       successCount.inc
     else:
       failCount.inc

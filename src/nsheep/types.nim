@@ -86,6 +86,31 @@ proc parseSemVer*(s: string): Option[SemVer] =
   except ValueError:
     result = none(SemVer)
 
+proc sanitizePackageName*(s: string): string =
+  ## Convert any string into a valid package name
+  ## Replaces dots with hyphens, strips invalid chars, ensures starts with letter
+  if s.len == 0:
+    return "pkg"
+
+  var sanitized = ""
+  for c in s:
+    if c in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_'}:
+      sanitized.add(c)
+    elif c == '.':
+      sanitized.add('-')
+    else:
+      sanitized.add('-')
+
+  # Ensure starts with a letter
+  if sanitized.len == 0 or sanitized[0] notin {'a'..'z', 'A'..'Z'}:
+    sanitized = "pkg-" & sanitized
+
+  # Trim to max length
+  if sanitized.len > 100:
+    sanitized = sanitized[0..<100]
+
+  result = sanitized
+
 proc initPackageName*(s: string): PackageName {.raises: [ValueError].} =
   ## Validate and create package name
   ## Rules: alphanumeric, hyphen, underscore only. Must start with letter.

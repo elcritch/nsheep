@@ -50,10 +50,12 @@ proc parseNimbleDump*(nimbleContent: string, pkgName: string): Table[string, str
 proc ingest*(
   client: var VcsClient,
   store: DbStorage,
-  repo: RepoRef
+  repo: RepoRef,
+  canonicalName: string = ""
 ): Package {.raises: [IngestError, VcsError, StorageError, PuppyError, CatchableError, Exception].} =
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
+  ## canonicalName: official name from nimble packages.json (not repo name)
 
   info "Starting ingestion", repo = repo.path
 
@@ -71,7 +73,7 @@ proc ingest*(
     raise newException(NoVersionsError, "repository has no releases and no head: " & repo.path)
   info "Fetched head", repo = repo.path
 
-  # 4. Fetch nimble file early so we know the canonical package name
+  # 4. Fetch nimble file for metadata (description, author, license)
   let latestTag = if releases.len > 0: releases[0].tag else: "HEAD"
   let nimbleOpt = fetchNimbleFile(client, repo, latestTag)
 
@@ -79,12 +81,16 @@ proc ingest*(
   if nimbleOpt.isSome:
     nimbleData = parseNimbleDump(nimbleOpt.get(), repo.path.split('/')[^1])
 
-  # 5. Determine canonical package name
-  let repoName = repo.path.split('/')[^1]
-  let pkgName = try:
-    initPackageName(nimbleData.getOrDefault("name", repoName))
-  except ValueError:
-    initPackageName(repoName)
+  # 5. Determine canonical package name — NEVER fall back to repo name
+  let pkgName = if canonicalName.len > 0:
+    initPackageName(sanitizePackageName(canonicalName))
+  else:
+    # No canonical name provided — try nimble file, or fail
+    let nimbleName = nimbleData.getOrDefault("name", "")
+    if nimbleName.len > 0:
+      initPackageName(sanitizePackageName(nimbleName))
+    else:
+      raise newException(IngestError, "no canonical name provided and no name in nimble file: " & repo.path)
 
   # 6. Ensure package row exists BEFORE storing versions
   let placeholderPkg = Package(
@@ -213,5 +219,5 @@ proc updatePackage*(
   if repoOpt.isNone:
     raise newException(IngestError, "cannot parse repository URL: " & existing.url)
 
-  # Re-ingest
-  result = ingest(client, store, repoOpt.get())
+  # Re-ingest using the existing canonical name
+  result = ingest(client, store, repoOpt.get(), $name)

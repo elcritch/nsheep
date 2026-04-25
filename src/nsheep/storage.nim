@@ -429,7 +429,7 @@ proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit:
 proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours: int = 1): bool =
   ## Check if #head was fetched within the given number of hours
   let row = s.db.one("""
-    SELECT updated_at FROM versions v
+    SELECT v.updated_at FROM versions v
     JOIN packages p ON v.package_id = p.id
     WHERE p.name = ? AND v.head_commit = '#head'
     ORDER BY v.updated_at DESC

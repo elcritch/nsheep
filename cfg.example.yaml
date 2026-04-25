@@ -10,6 +10,18 @@ server:
 github:
   token: ""  # Optional: GitHub API token for higher rate limits
 
+gitlab:
+  token: ""  # Optional: GitLab API token for private repos / higher rate limits
+
+codeberg:
+  token: ""  # Optional: Codeberg API token for private repos
+
+bitbucket:
+  token: ""  # Optional: Bitbucket app password for private repos
+
+sourcehut:
+  token: ""  # Optional: SourceHut OAuth token for private repos
+
 local:
   dbPath: "./data/nsheep.db"      # SQLite database path
   tarballDir: "./data/tarballs"   # Directory for package tarballs

@@ -9,7 +9,7 @@ import nsheep/[storage, ingest, vcs, config, validator], puppy
 
 const
   NimblePackagesUrl = "https://raw.githubusercontent.com/nim-lang/packages/master/packages.json"
-  DefaultFetchInterval = 60 * 60  # 1 hour in seconds
+  DefaultFetchInterval = 60 * 60 # 1 hour in seconds
   MaxRetries = 3
 
 type
@@ -31,38 +31,38 @@ proc defaultFetcherConfig*(): FetcherConfig =
 proc fetchNimblePackages(): seq[RepoRef] =
   ## Fetch and parse nimble packages.json
   info "Fetching nimble packages list"
-  
+
   let response = get(NimblePackagesUrl)
   if response.code != 200:
     raise newException(IOError, "failed to fetch packages.json: HTTP " & $response.code)
-  
+
   let json = parseJson(response.body)
   if json.kind != JArray:
     raise newException(ValueError, "packages.json is not an array")
-  
+
   result = @[]
   for pkg in json:
     try:
       if pkg.hasKey("alias"):
         continue
-      
+
       let url = pkg["url"].getStr()
       let repoOpt = vcs.parseRepoUrl(url)
       if repoOpt.isSome:
         result.add(repoOpt.get())
     except:
       continue
-  
+
   info "Parsed packages", count = result.len
 
 proc ingestPackage(fetcher: Fetcher, repo: RepoRef): bool =
   ## Ingest a single package with validation, return true on success
-  
+
   # First validate if enabled
   if fetcher.validatorConfig.enabled:
     info "Validating package", repo = repo.path
     let validationResult = validatePackage(fetcher.store, repo.url, repo.path, fetcher.validatorConfig)
-    
+
     if not validationResult.overallSuccess:
       if fetcher.validatorConfig.required:
         error "Validation failed, skipping ingest", repo = repo.path
@@ -71,7 +71,7 @@ proc ingestPackage(fetcher: Fetcher, repo: RepoRef): bool =
         warn "Validation failed but not required, continuing", repo = repo.path
     else:
       info "Validation passed", repo = repo.path
-  
+
   # Then ingest
   for attempt in 1..MaxRetries:
     try:
@@ -81,14 +81,14 @@ proc ingestPackage(fetcher: Fetcher, repo: RepoRef): bool =
       warn "Ingest failed", repo = repo.path, attempt = attempt, error = e.msg
       if attempt < MaxRetries:
         sleep(1000 * attempt)
-  
+
   error "Ingest failed permanently", repo = repo.path
   return false
 
 proc shouldFetch(fetcher: Fetcher, repo: RepoRef): bool =
   if fetcher.fetcherConfig.filterPatterns.len == 0:
     return true
-  
+
   let fullName = repo.path
   for pattern in fetcher.fetcherConfig.filterPatterns:
     if fullName.contains(pattern):
@@ -97,62 +97,63 @@ proc shouldFetch(fetcher: Fetcher, repo: RepoRef): bool =
 
 proc runOnce(fetcher: Fetcher) =
   info "Starting fetch cycle"
-  
+
   let repos = fetchNimblePackages()
   var successCount = 0
   var failCount = 0
   var skippedCount = 0
   var processedCount = 0
-  
+
   for repo in repos:
     if fetcher.fetcherConfig.maxPackages > 0 and processedCount >= fetcher.fetcherConfig.maxPackages:
       break
-    
+
     if not fetcher.shouldFetch(repo):
       skippedCount.inc
       continue
-    
+
     processedCount.inc
-    
+
     if ingestPackage(fetcher, repo):
       successCount.inc
     else:
       failCount.inc
-  
-  info "Fetch cycle complete", success = successCount, failed = failCount, skipped = skippedCount, total = processedCount
+
+  info "Fetch cycle complete", success = successCount, failed = failCount, skipped = skippedCount,
+      total = processedCount
 
 proc fetcherLoop(fetcher: Fetcher) {.thread.} =
   info "Fetcher thread started", interval = fetcher.fetcherConfig.interval
-  
+
   while fetcher.running:
     try:
       runOnce(fetcher)
     except CatchableError as e:
       error "Fetch cycle error", error = e.msg
-    
+
     var slept = 0
     while fetcher.running and slept < fetcher.fetcherConfig.interval:
       sleep(1000)
       slept.inc
-  
+
   info "Fetcher thread stopped"
 
 proc runFetcher*(fetcher: Fetcher) =
   ## Run fetcher in current thread (blocking)
   fetcher.running = true
   info "Fetcher started", interval = fetcher.fetcherConfig.interval
-  
+
   while fetcher.running:
     try:
       runOnce(fetcher)
     except CatchableError as e:
       error "Fetch cycle error", error = e.msg
-    
+
     var slept = 0
     while fetcher.running and slept < fetcher.fetcherConfig.interval:
       sleep(1000)
       slept.inc
-  
+
   info "Fetcher stopped"
 
 proc startFetcher*(fetcher: Fetcher) =
@@ -182,22 +183,22 @@ proc initFetcher*(
 when isMainModule:
   proc main() =
     ## NSheep fetcher - background package ingestion
-    
+
     if paramCount() < 1:
       stderr.writeLine("usage: nsheep-fetcher <cfg.yaml>")
       quit(1)
-    
+
     let configPath = paramStr(1)
     if not fileExists(configPath):
       stderr.writeLine("config file not found: ", configPath)
       quit(1)
-    
+
     let cfg = try:
       loadConfig(configPath)
     except CatchableError as e:
       stderr.writeLine("failed to load config: ", e.msg)
       quit(1)
-    
+
     # Initialize storage
     var store: DbStorage
     case cfg.storage
@@ -206,19 +207,26 @@ when isMainModule:
     of sbCloudflare:
       stderr.writeLine("Cloudflare storage not yet implemented")
       quit(1)
-    
+
     # Initialize VCS client
-    var vcsClient = initVcsClient(cfg.github.token, "/tmp/nsheep/vcs-cache")
-    
+    var vcsClient = initVcsClient(
+      cfg.github.token,
+      cfg.gitlab.token,
+      cfg.codeberg.token,
+      cfg.bitbucket.token,
+      cfg.sourcehut.token,
+      "/tmp/nsheep/vcs-cache"
+    )
+
     # Create and run fetcher
     var f = initFetcher(vcsClient, store, cfg.fetcher, cfg.validator)
-    
+
     info "Fetcher starting", interval = cfg.fetcher.interval, validation = cfg.validator.enabled
-    
+
     try:
       f.runFetcher()
     except CatchableError as e:
       error "Fetcher error", error = e.msg
       quit(1)
-  
+
   main()

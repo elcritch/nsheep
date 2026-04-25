@@ -35,7 +35,11 @@ type
   VcsRateLimitError* = object of VcsError
 
   VcsClient* = object
-    token*: string
+    githubToken*: string
+    gitlabToken*: string
+    codebergToken*: string
+    bitbucketToken*: string
+    sourcehutToken*: string
     cacheDir*: string
 
 # --- URL Parsing ---
@@ -133,11 +137,30 @@ proc saveCache(cacheDir, key: string, etag, body: string) =
   writeFile(path, etag & "\n" & $getTime().toUnix & "\n" & body)
 
 proc isGitHubUrl(url: string): bool =
-  ## Check if URL points to a GitHub domain
   url.startsWith("https://github.com") or
   url.startsWith("https://api.github.com") or
   url.startsWith("https://raw.githubusercontent.com") or
   url.startsWith("https://codeload.github.com")
+
+proc isGitLabUrl(url: string): bool =
+  url.startsWith("https://gitlab.com") or url.contains("gitlab")
+
+proc isCodebergUrl(url: string): bool =
+  url.startsWith("https://codeberg.org")
+
+proc isBitbucketUrl(url: string): bool =
+  url.startsWith("https://bitbucket.org")
+
+proc isSourceHutUrl(url: string): bool =
+  url.startsWith("https://git.sr.ht")
+
+proc tokenForUrl(client: VcsClient, url: string): string =
+  if isGitHubUrl(url): client.githubToken
+  elif isGitLabUrl(url): client.gitlabToken
+  elif isCodebergUrl(url): client.codebergToken
+  elif isBitbucketUrl(url): client.bitbucketToken
+  elif isSourceHutUrl(url): client.sourcehutToken
+  else: ""
 
 proc makeRequest(
   client: VcsClient,
@@ -146,8 +169,9 @@ proc makeRequest(
   etag: string = ""
 ): tuple[code: int, body: string, etag: string] =
   var reqHeaders = headers
-  if client.token.len > 0 and isGitHubUrl(url):
-    reqHeaders.add(Header(key: "Authorization", value: "Bearer " & client.token))
+  let token = tokenForUrl(client, url)
+  if token.len > 0:
+    reqHeaders.add(Header(key: "Authorization", value: "Bearer " & token))
   if etag.len > 0:
     reqHeaders.add(Header(key: "If-None-Match", value: etag))
 
@@ -187,7 +211,7 @@ proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
 
 proc downloadHttp*(url, token: string): seq[byte] =
   var headers: seq[Header] = @[Header(key: "User-Agent", value: "nsheep-" & Version)]
-  if token.len > 0 and isGitHubUrl(url):
+  if token.len > 0:
     headers.add(Header(key: "Authorization", value: "Bearer " & token))
   let response = get(url, headers)
   if response.code != 200:
@@ -196,8 +220,16 @@ proc downloadHttp*(url, token: string): seq[byte] =
   if result.len > 0:
     copyMem(addr result[0], unsafeAddr response.body[0], response.body.len)
 
-proc initVcsClient*(token, cacheDir: string): VcsClient =
-  VcsClient(token: token, cacheDir: cacheDir)
+proc initVcsClient*(githubToken, gitlabToken, codebergToken, bitbucketToken, sourcehutToken,
+    cacheDir: string): VcsClient =
+  VcsClient(
+    githubToken: githubToken,
+    gitlabToken: gitlabToken,
+    codebergToken: codebergToken,
+    bitbucketToken: bitbucketToken,
+    sourcehutToken: sourcehutToken,
+    cacheDir: cacheDir
+  )
 
 # --- GitHub ---
 
@@ -259,7 +291,7 @@ proc githubFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string =
   let refName = if tag == "#head": "HEAD" else: tag
   let url = "https://raw.githubusercontent.com/" & repo.path & "/" & refName & "/README.md"
   try:
-    result = cast[string](downloadHttp(url, client.token))
+    result = cast[string](downloadHttp(url, client.githubToken))
   except:
     result = ""
 
@@ -304,7 +336,7 @@ proc gitlabFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
 proc gitlabFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
   let url = repo.apiBase & "/" & repo.path & "/-/raw/" & tag & "/" & filename
   try:
-    let data = downloadHttp(url, client.token)
+    let data = downloadHttp(url, client.gitlabToken)
     result = some(cast[string](data))
   except:
     result = none(string)
@@ -350,7 +382,7 @@ proc codebergFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
 proc codebergFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
   let url = "https://codeberg.org/" & repo.path & "/raw/tag/" & tag & "/" & filename
   try:
-    let data = downloadHttp(url, client.token)
+    let data = downloadHttp(url, client.codebergToken)
     result = some(cast[string](data))
   except:
     result = none(string)
@@ -396,7 +428,7 @@ proc bitbucketFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] 
 proc bitbucketFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
   let url = "https://bitbucket.org/" & repo.path & "/raw/" & tag & "/" & filename
   try:
-    let data = downloadHttp(url, client.token)
+    let data = downloadHttp(url, client.bitbucketToken)
     result = some(cast[string](data))
   except:
     result = none(string)
@@ -643,15 +675,25 @@ proc downloadTarball*(client: VcsClient, repo: RepoRef, ver: VersionInfo): seq[b
   ## Download tarball bytes for a specific version.
   case repo.host
   of vhGitHub:
-    result = downloadHttp(ver.tarballUrl, client.token)
-  of vhGitLab, vhCodeberg, vhBitbucket:
+    result = downloadHttp(ver.tarballUrl, client.githubToken)
+  of vhGitLab:
     if ver.tarballUrl.len > 0:
-      result = downloadHttp(ver.tarballUrl, client.token)
+      result = downloadHttp(ver.tarballUrl, client.gitlabToken)
+    else:
+      raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
+  of vhCodeberg:
+    if ver.tarballUrl.len > 0:
+      result = downloadHttp(ver.tarballUrl, client.codebergToken)
+    else:
+      raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
+  of vhBitbucket:
+    if ver.tarballUrl.len > 0:
+      result = downloadHttp(ver.tarballUrl, client.bitbucketToken)
     else:
       raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
   of vhSourceHut:
     if ver.tarballUrl.len > 0:
-      result = downloadHttp(ver.tarballUrl, client.token)
+      result = downloadHttp(ver.tarballUrl, client.sourcehutToken)
     else:
       result = genericGitDownloadTarball(repo, ver.tag)
   of vhGenericGit:

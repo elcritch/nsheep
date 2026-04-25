@@ -14,14 +14,16 @@ type
     bindAddr*: string
     port*: int
     publicDir*: string
-    baseUrl*: string       # Public URL for generating download links (e.g. "https://nsheep.example.com")
+    baseUrl*: string # Public URL for generating download links (e.g. "https://nsheep.example.com")
 
-  GitHubConfig* = object
+  GitHostConfig* = object
     token*: string
 
+  GitHubConfig* = GitHostConfig
+
   LocalStorageConfig* = object
-    dbPath*: string       # SQLite database path
-    tarballDir*: string   # Directory for tarballs
+    dbPath*: string     # SQLite database path
+    tarballDir*: string # Directory for tarballs
 
   CloudflareConfig* = object
     accountId*: string
@@ -32,20 +34,24 @@ type
     apiToken*: string
 
   FetcherConfig* = object
-    interval*: int           # Seconds between fetches (default: 3600)
-    maxPackages*: int        # Max packages to ingest per cycle (0 = unlimited)
-    filterPatterns*: seq[string]  # Only fetch packages matching these patterns
+    interval*: int               # Seconds between fetches (default: 3600)
+    maxPackages*: int            # Max packages to ingest per cycle (0 = unlimited)
+    filterPatterns*: seq[string] # Only fetch packages matching these patterns
 
   ValidatorConfig* = object
-    enabled*: bool           # Enable Docker validation
-    dockerImage*: string     # Docker image to use for building
-    timeout*: int            # Build timeout in seconds
-    required*: bool          # Require validation to pass before storing
+    enabled*: bool       # Enable Docker validation
+    dockerImage*: string # Docker image to use for building
+    timeout*: int        # Build timeout in seconds
+    required*: bool      # Require validation to pass before storing
 
   RawConfig* = object
     ## Config as loaded from YAML (with string storage field)
     server*: ServerConfig
-    github*: GitHubConfig
+    github*: GitHostConfig
+    gitlab*: GitHostConfig
+    codeberg*: GitHostConfig
+    bitbucket*: GitHostConfig
+    sourcehut*: GitHostConfig
     local*: LocalStorageConfig
     cloudflare*: CloudflareConfig
     fetcher*: FetcherConfig
@@ -55,7 +61,11 @@ type
   Config* = object
     ## Immutable configuration - all fields must be explicitly set
     server*: ServerConfig
-    github*: GitHubConfig
+    github*: GitHostConfig
+    gitlab*: GitHostConfig
+    codeberg*: GitHostConfig
+    bitbucket*: GitHostConfig
+    sourcehut*: GitHostConfig
     local*: LocalStorageConfig
     cloudflare*: CloudflareConfig
     fetcher*: FetcherConfig
@@ -68,13 +78,13 @@ proc validate(cfg: Config) =
   ## Fail fast on invalid configuration
   if cfg.server.port < 1 or cfg.server.port > 65535:
     raise newException(ValueError, "invalid port: " & $cfg.server.port)
-  
+
   if cfg.server.bindAddr.len == 0:
     raise newException(ValueError, "bind address cannot be empty")
-  
+
   if cfg.server.publicDir.len == 0:
     raise newException(ValueError, "server.publicDir cannot be empty")
-  
+
   case cfg.storage
   of sbLocal:
     if cfg.local.dbPath.len == 0:
@@ -100,12 +110,12 @@ proc validate(cfg: Config) =
 proc loadConfig*(path: string): Config =
   ## Load configuration from YAML file
   ## Fails if file doesn't exist or is invalid
-  
+
   let content = readFile(path)
-  
+
   # Load raw config with string storage field
   let raw = loadAs[RawConfig](content)
-  
+
   # Parse storage backend
   var storage: StorageBackend
   case raw.storage
@@ -115,35 +125,39 @@ proc loadConfig*(path: string): Config =
     storage = sbCloudflare
   else:
     raise newException(ValueError, "unknown storage: " & raw.storage & ", expected 'local' or 'cloudflare'")
-  
+
   # Set fetcher defaults if not provided
   var fetcherConfig = raw.fetcher
   if fetcherConfig.interval == 0:
-    fetcherConfig.interval = 3600  # 1 hour default
+    fetcherConfig.interval = 3600 # 1 hour default
   
   # Set server defaults
   var serverConfig = raw.server
   if serverConfig.publicDir == "":
     serverConfig.publicDir = "./public"
-  
+
   # Set validator defaults
   var validatorConfig = raw.validator
   if validatorConfig.dockerImage == "":
     validatorConfig.dockerImage = "nimlang/nim:latest"
   if validatorConfig.timeout == 0:
-    validatorConfig.timeout = 300  # 5 minutes
+    validatorConfig.timeout = 300 # 5 minutes
   
   # Build final config
   var cfg = Config(
     server: serverConfig,
     github: raw.github,
+    gitlab: raw.gitlab,
+    codeberg: raw.codeberg,
+    bitbucket: raw.bitbucket,
+    sourcehut: raw.sourcehut,
     local: raw.local,
     cloudflare: raw.cloudflare,
     fetcher: fetcherConfig,
     validator: validatorConfig,
     storage: storage
   )
-  
+
   # Validate
   validate(cfg)
   result = cfg

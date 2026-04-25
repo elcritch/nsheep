@@ -38,16 +38,6 @@ type
     createdAt*: DateTime
     updatedAt*: DateTime
 
-  Repository* = object
-    ## GitHub repository reference
-    owner*: string
-    name*: string
-
-  GitHubRelease* = object
-    tag*: string
-    tarballUrl*: string
-    publishedAt*: DateTime
-
   IngestionError* = enum
     ieInvalidRepository
     ieNoVersions
@@ -146,32 +136,4 @@ proc sortVersions*(p: var Package) =
     result = compare(b.version, a.version)
   )
 
-# --- Repository parsing ---
 
-proc parseRepositoryUrl*(url: string): Repository {.raises: [ValueError].} =
-  ## Parse GitHub URL - strict, no guessing
-  ## Format: https://github.com/owner/repo or owner/repo
-  
-  var input = url
-  
-  # Remove scheme if present
-  if input.startsWith("https://"):
-    input = input[8..^1]
-  elif input.startsWith("http://"):
-    raise newException(ValueError, "insecure http not allowed: " & url)
-  
-  # Remove github.com/ prefix
-  if input.startsWith("github.com/"):
-    input = input[11..^1]
-  elif "/" in input and not input.startsWith("github.com"):
-    raise newException(ValueError, "only github.com repositories supported: " & url)
-  
-  # Split owner/repo
-  let parts = input.split('/')
-  if parts.len != 2:
-    raise newException(ValueError, "invalid repository format, expected owner/repo: " & url)
-  
-  if parts[0].len == 0 or parts[1].len == 0:
-    raise newException(ValueError, "owner and repo must be non-empty")
-  
-  result = Repository(owner: parts[0], name: parts[1])

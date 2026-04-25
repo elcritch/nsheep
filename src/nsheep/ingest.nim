@@ -5,7 +5,7 @@
 
 import std/[times, tables, strutils, json, os, osproc, tempfiles, options]
 import chronicles
-import nsheep/[types, storage, github], puppy
+import nsheep/[types, storage, vcs], puppy
 
 # --- Errors ---
 
@@ -48,24 +48,24 @@ proc parseNimbleDump*(nimbleContent: string, pkgName: string): Table[string, str
 # --- Core ingestion logic ---
 
 proc ingest*(
-  gh: var GitHubClient,
+  client: var VcsClient,
   store: DbStorage,
-  repo: Repository
-): Package {.raises: [IngestError, GitHubError, StorageError, PuppyError, CatchableError, Exception].} =
+  repo: RepoRef
+): Package {.raises: [IngestError, VcsError, StorageError, PuppyError, CatchableError, Exception].} =
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
   
-  info "Starting ingestion", repo = repo.owner & "/" & repo.name
+  info "Starting ingestion", repo = repo.path
   
   # 1. Fetch repository metadata
-  let (description, stars, updatedAt) = fetchRepository(gh, repo)
-  info "Fetched repository metadata", stars = stars
+  let (description, updatedAt) = fetchRepoMeta(client, repo)
+  info "Fetched repository metadata"
   
-  # 2. Fetch releases
-  let releases = fetchReleases(gh, repo)
+  # 2. Fetch releases / tags
+  let releases = fetchVersions(client, repo)
   info "Fetched releases", count = releases.len
   if releases.len == 0:
-    raise newException(NoVersionsError, "repository has no releases: " & repo.owner & "/" & repo.name)
+    raise newException(NoVersionsError, "repository has no releases: " & repo.path)
   
   # 3. Parse releases into versions
   var versions = newSeq[PackageVersion]()
@@ -76,22 +76,23 @@ proc ingest*(
       continue  # Skip non-semver tags silently
     
     let ver = optVer.get()
+    let pkgName = initPackageName(repo.path.split('/')[^1])
     
     # Check if already have this version
-    if versionExists(store, initPackageName(repo.name), ver):
+    if versionExists(store, pkgName, ver):
       # Already cached - just load metadata
       # This is an optimization path
       continue
     
     # Download tarball
-    let tarballBytes = downloadTarball(gh, rel.tarballUrl)
+    let tarballBytes = downloadTarball(client, repo, rel)
     
     # Compute checksum
     # TODO: use std/sha256
     let checksum = initChecksum("0" & repeat('0', 63))  # Placeholder
     
     # Store version with tarball
-    storeVersion(store, initPackageName(repo.name), ver, tarballBytes, checksum, rel.publishedAt)
+    storeVersion(store, pkgName, ver, tarballBytes, checksum, rel.publishedAt)
     
     versions.add(PackageVersion(
       version: ver,
@@ -108,25 +109,26 @@ proc ingest*(
   
   # 4. Fetch nimble file for metadata
   let latestTag = releases[0].tag
-  let nimbleOpt = fetchNimbleFile(gh, repo, latestTag)
+  let nimbleOpt = fetchNimbleFile(client, repo, latestTag)
   
   var nimbleData = initTable[string, string]()
   if nimbleOpt.isSome:
-    nimbleData = parseNimbleDump(nimbleOpt.get(), repo.name)
+    nimbleData = parseNimbleDump(nimbleOpt.get(), repo.path.split('/')[^1])
   
   # 5. Build package
+  let repoName = repo.path.split('/')[^1]
   let pkgName = try:
-    initPackageName(nimbleData.getOrDefault("name", repo.name))
+    initPackageName(nimbleData.getOrDefault("name", repoName))
   except ValueError:
-    initPackageName(repo.name)
+    initPackageName(repoName)
   
   let pkg = Package(
     name: pkgName,
     description: nimbleData.getOrDefault("description", description),
-    author: nimbleData.getOrDefault("author", repo.owner),
+    author: nimbleData.getOrDefault("author", repo.path.split('/')[^2]),
     license: nimbleData.getOrDefault("license", "Unknown"),
-    url: "https://github.com/" & repo.owner & "/" & repo.name,
-    tags: @[],  # Could fetch from GitHub API
+    url: repo.url,
+    tags: @[],
     versions: versions,
     createdAt: now(),
     updatedAt: updatedAt
@@ -141,7 +143,7 @@ proc ingest*(
     if optVer.isNone:
       continue
     let ver = optVer.get()
-    let readmeContent = fetchReadme(gh, repo.owner, repo.name, rel.tag)
+    let readmeContent = fetchReadme(client, repo, rel.tag)
     if readmeContent != "":
       let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
       storeReadme(store, pkg.name.string, versionStr, readmeContent)
@@ -152,17 +154,19 @@ proc ingest*(
 # --- Batch operations ---
 
 proc updatePackage*(
-  gh: var GitHubClient,
+  client: var VcsClient,
   store: DbStorage,
   name: PackageName
-): Package {.raises: [IngestError, GitHubError, StorageError, storage.NotFoundError, Exception].} =
+): Package {.raises: [IngestError, VcsError, StorageError, storage.NotFoundError, Exception].} =
   ## Update existing package
   
   # Load existing to get URL
   let existing = loadPackage(store, name)
   
   # Parse URL to get repo
-  let repo = parseRepositoryUrl(existing.url)
+  let repoOpt = vcs.parseRepoUrl(existing.url)
+  if repoOpt.isNone:
+    raise newException(IngestError, "cannot parse repository URL: " & existing.url)
   
   # Re-ingest
-  result = ingest(gh, store, repo)
+  result = ingest(client, store, repoOpt.get())

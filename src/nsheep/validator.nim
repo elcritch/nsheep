@@ -107,18 +107,16 @@ proc getLatestTags(repoUrl: string, count: int): seq[string] =
 
 proc validatePackage*(
   s: DbStorage,
-  repoOwner, repoName: string,
+  repoUrl, repoName: string,
   config: ValidatorConfig = defaultValidatorConfig()
 ): ValidationResult =
   ## Validate a package by building default branch + latest tags, store results in DB
-  result.repo = repoOwner & "/" & repoName
+  result.repo = repoName
   result.overallSuccess = true
   
   if not config.enabled:
     result.overallSuccess = true
     return
-  
-  let repoUrl = "https://github.com/" & repoOwner & "/" & repoName
   
   info "Starting validation", repo = result.repo
   
@@ -172,14 +170,14 @@ proc isDockerAvailable*(): bool =
   let (_, exitCode) = execCmdEx("docker ps")
   return exitCode == 0
 
-proc validateOrSkip*(s: DbStorage, repoOwner, repoName: string, config: ValidatorConfig): bool =
+proc validateOrSkip*(s: DbStorage, repoUrl, repoName: string, config: ValidatorConfig): bool =
   ## Validate if enabled and Docker available, otherwise return true (skip)
   if not config.enabled:
     return true
   
   if not isDockerAvailable():
-    warn "Docker not available, skipping validation", repo = repoOwner & "/" & repoName
+    warn "Docker not available, skipping validation", repo = repoName
     return true
   
-  let res = validatePackage(s, repoOwner, repoName, config)
+  let res = validatePackage(s, repoUrl, repoName, config)
   return res.overallSuccess

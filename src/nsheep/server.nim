@@ -6,7 +6,7 @@
 import std/[json, strutils, options, times, os]
 import mummy, mummy/routers
 import chronicles
-import nsheep/[types, storage, github, config]
+import nsheep/[types, storage, config]
 
 # --- State ---
 
@@ -14,7 +14,6 @@ type
   ServerState* = object
     cfg*: Config
     store*: DbStorage
-    gh*: GitHubClient
 
 # --- Helpers ---
 
@@ -413,7 +412,7 @@ proc runServer*(cfg: Config) =
   of sbCloudflare:
     raise newException(ValueError, "Cloudflare storage not yet implemented")
   
-  state.gh = initGitHubClient(cfg.github.token, "/tmp/nsheep/github-cache")
+  discard
   
   # Setup router
   var router = Router()

@@ -5,7 +5,7 @@
 
 import std/[json, strutils, options, os]
 import chronicles
-import nsheep/[types, storage, ingest, github, config, validator], puppy
+import nsheep/[storage, ingest, vcs, config, validator], puppy
 
 const
   NimblePackagesUrl = "https://raw.githubusercontent.com/nim-lang/packages/master/packages.json"
@@ -14,7 +14,7 @@ const
 
 type
   Fetcher* = ref object
-    gh*: GitHubClient
+    vcs*: VcsClient
     store*: DbStorage
     fetcherConfig*: FetcherConfig
     validatorConfig*: validator.ValidatorConfig
@@ -28,21 +28,7 @@ proc defaultFetcherConfig*(): FetcherConfig =
     maxPackages: 0
   )
 
-proc parseRepositoryUrl(url: string): Option[Repository] =
-  ## Parse GitHub URL into owner/repo
-  if not url.startsWith("https://github.com/"):
-    return none(Repository)
-  
-  let parts = url[19..^1].split('/')
-  if parts.len < 2:
-    return none(Repository)
-  
-  var repo: Repository
-  repo.owner = parts[0]
-  repo.name = parts[1].replace(".git", "")
-  return some(repo)
-
-proc fetchNimblePackages(): seq[Repository] =
+proc fetchNimblePackages(): seq[RepoRef] =
   ## Fetch and parse nimble packages.json
   info "Fetching nimble packages list"
   
@@ -61,7 +47,7 @@ proc fetchNimblePackages(): seq[Repository] =
         continue
       
       let url = pkg["url"].getStr()
-      let repoOpt = parseRepositoryUrl(url)
+      let repoOpt = vcs.parseRepoUrl(url)
       if repoOpt.isSome:
         result.add(repoOpt.get())
     except:
@@ -69,41 +55,41 @@ proc fetchNimblePackages(): seq[Repository] =
   
   info "Parsed packages", count = result.len
 
-proc ingestPackage(fetcher: Fetcher, repo: Repository): bool =
+proc ingestPackage(fetcher: Fetcher, repo: RepoRef): bool =
   ## Ingest a single package with validation, return true on success
   
   # First validate if enabled
   if fetcher.validatorConfig.enabled:
-    info "Validating package", repo = repo.owner & "/" & repo.name
-    let validationResult = validatePackage(fetcher.store, repo.owner, repo.name, fetcher.validatorConfig)
+    info "Validating package", repo = repo.path
+    let validationResult = validatePackage(fetcher.store, repo.url, repo.path, fetcher.validatorConfig)
     
     if not validationResult.overallSuccess:
       if fetcher.validatorConfig.required:
-        error "Validation failed, skipping ingest", repo = repo.owner & "/" & repo.name
+        error "Validation failed, skipping ingest", repo = repo.path
         return false
       else:
-        warn "Validation failed but not required, continuing", repo = repo.owner & "/" & repo.name
+        warn "Validation failed but not required, continuing", repo = repo.path
     else:
-      info "Validation passed", repo = repo.owner & "/" & repo.name
+      info "Validation passed", repo = repo.path
   
   # Then ingest
   for attempt in 1..MaxRetries:
     try:
-      discard ingest(fetcher.gh, fetcher.store, repo)
+      discard ingest(fetcher.vcs, fetcher.store, repo)
       return true
     except CatchableError as e:
-      warn "Ingest failed", repo = repo.owner & "/" & repo.name, attempt = attempt, error = e.msg
+      warn "Ingest failed", repo = repo.path, attempt = attempt, error = e.msg
       if attempt < MaxRetries:
         sleep(1000 * attempt)
   
-  error "Ingest failed permanently", repo = repo.owner & "/" & repo.name
+  error "Ingest failed permanently", repo = repo.path
   return false
 
-proc shouldFetch(fetcher: Fetcher, repo: Repository): bool =
+proc shouldFetch(fetcher: Fetcher, repo: RepoRef): bool =
   if fetcher.fetcherConfig.filterPatterns.len == 0:
     return true
   
-  let fullName = repo.owner & "/" & repo.name
+  let fullName = repo.path
   for pattern in fetcher.fetcherConfig.filterPatterns:
     if fullName.contains(pattern):
       return true
@@ -178,13 +164,13 @@ proc stopFetcher*(fetcher: Fetcher) =
   fetcher.running = false
 
 proc initFetcher*(
-  gh: GitHubClient, 
-  store: DbStorage, 
+  vcsClient: VcsClient,
+  store: DbStorage,
   fetcherConfig: FetcherConfig = defaultFetcherConfig(),
   validatorConfig: validator.ValidatorConfig = validator.defaultValidatorConfig()
 ): Fetcher =
   result = Fetcher(
-    gh: gh,
+    vcs: vcsClient,
     store: store,
     fetcherConfig: fetcherConfig,
     validatorConfig: validatorConfig,
@@ -221,11 +207,11 @@ when isMainModule:
       stderr.writeLine("Cloudflare storage not yet implemented")
       quit(1)
     
-    # Initialize GitHub client
-    var gh = initGitHubClient(cfg.github.token, "/tmp/nsheep/github-cache")
+    # Initialize VCS client
+    var vcsClient = initVcsClient(cfg.github.token, "/tmp/nsheep/vcs-cache")
     
     # Create and run fetcher
-    var f = initFetcher(gh, store, cfg.fetcher, cfg.validator)
+    var f = initFetcher(vcsClient, store, cfg.fetcher, cfg.validator)
     
     info "Fetcher starting", interval = cfg.fetcher.interval, validation = cfg.validator.enabled
     

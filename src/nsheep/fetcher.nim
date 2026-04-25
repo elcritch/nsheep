@@ -64,19 +64,22 @@ proc fetchNimblePackages(): seq[NimblePkg] =
 proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): bool =
   ## Ingest a single package with validation, return true on success
 
-  # First validate if enabled
+  # First validate if enabled and Docker is available
   if fetcher.validatorConfig.enabled:
-    info "Validating package", repo = pkg.repo.path
-    let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.repo.path, fetcher.validatorConfig)
-
-    if not validationResult.overallSuccess:
-      if fetcher.validatorConfig.required:
-        error "Validation failed, skipping ingest", repo = pkg.repo.path
-        return false
-      else:
-        warn "Validation failed but not required, continuing", repo = pkg.repo.path
+    if not isDockerAvailable():
+      warn "Docker not available, skipping validation", repo = pkg.repo.path
     else:
-      info "Validation passed", repo = pkg.repo.path
+      info "Validating package", repo = pkg.repo.path
+      let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.repo.path, fetcher.validatorConfig)
+
+      if not validationResult.overallSuccess:
+        if fetcher.validatorConfig.required:
+          error "Validation failed, skipping ingest", repo = pkg.repo.path
+          return false
+        else:
+          warn "Validation failed but not required, continuing", repo = pkg.repo.path
+      else:
+        info "Validation passed", repo = pkg.repo.path
 
   # Then ingest
   for attempt in 1..MaxRetries:

@@ -97,11 +97,13 @@ proc getLatestTags(repoUrl: string, count: int): seq[string] =
   let cmd = "git clone --depth 1 --no-checkout " & repoUrl & " " & tempDir & " 2>&1 && cd " & tempDir & " && git tag -l 2>/dev/null | sort -V | tail -" & $count
   let (output, exitCode) = execCmdEx(cmd)
   
-  if exitCode == 0:
-    for line in output.splitLines():
-      let tag = line.strip()
-      if tag.len > 0:
-        result.add(tag)
+  if exitCode != 0:
+    return @[]
+  
+  for line in output.splitLines():
+    let tag = line.strip()
+    if tag.len > 0 and not tag.contains(" "):
+      result.add(tag)
   
   result.reverse()  # Latest first
 

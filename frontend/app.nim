@@ -74,6 +74,11 @@ type
     hosts: seq[HostItem]
     topTags: seq[TagItem]
 
+proc sortParam(so: SortOrder): string =
+  case so
+  of soUpdatedDesc: "updated_desc"
+  of soPublishedDesc: "published_desc"
+
 # --- State ---
 
 const pageSize = 50
@@ -222,7 +227,7 @@ proc fetchText(url: cstring, cont: proc(text: string)) =
 proc fetchSummaries(page: int = 1) =
   loading = true
   errorMessage = ""
-  let url = "/api/v1/packages?page=" & $page & "&limit=" & $pageSize
+  let url = "/api/v1/packages?page=" & $page & "&limit=" & $pageSize & "&sort=" & sortParam(currentSort)
   fetchJson(cstring(url),
     proc (data: JsonNode) =
     loading = false
@@ -419,7 +424,6 @@ proc applyFilters() =
       matches = hasTag
     if matches:
       filtered.add(s)
-  sortFiltered()
   displayedCount = filtered.len
 
 # --- Event Handlers ---
@@ -517,13 +521,17 @@ proc renderHome(): VNode =
         button(class = cstring("sort-btn " & (if currentSort == soPublishedDesc: "sort-active" else: "")),
             onclick = proc() =
           currentSort = soPublishedDesc
-          applyFilters()
-          redraw()
+          summaries = @[]
+          filtered = @[]
+          displayedCount = 0
+          fetchSummaries(1)
         ): text "Recent published"
         button(class = cstring("sort-btn " & (if currentSort == soUpdatedDesc: "sort-active" else: "")), onclick = proc() =
           currentSort = soUpdatedDesc
-          applyFilters()
-          redraw()
+          summaries = @[]
+          filtered = @[]
+          displayedCount = 0
+          fetchSummaries(1)
         ): text "Recently updated"
     if activeAuthor != "" or activeTag != "":
       tdiv(class = "active-filters"):
@@ -912,19 +920,7 @@ proc postRender() =
       let marked = cast[JsObject](kdom.window)["marked"]
       let purify = cast[JsObject](kdom.window)["DOMPurify"]
       if marked != nil and purify != nil:
-        let renderer = marked.Renderer.new()
-        let codeRenderer = proc(code: cstring, lang: cstring): cstring =
-          let language = if lang == nil or $lang == "": cstring"text" else: lang
-          let prism = cast[JsObject](kdom.window)["Prism"]
-          if prism != nil:
-            let grammar = prism.languages[language]
-            if grammar != nil:
-              let highlighted = prism.highlight(code, grammar, language)
-              return cstring("<pre><code class=\"language-" & $language & "\">" & $cast[cstring](highlighted) & "</code></pre>")
-          cstring("<pre><code class=\"language-" & $language & "\">" & $code & "</code></pre>")
-        cast[JsObject](renderer)["code"] = codeRenderer
-
-        let rawHtml = marked.parse(cstring(readmeContent), %*{"renderer": renderer})
+        let rawHtml = marked.parse(cstring(readmeContent))
         let safeHtml = purify.sanitize(rawHtml)
         cast[JsObject](el)["innerHTML"] = safeHtml
 

@@ -260,10 +260,15 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
       latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].strVal else: ""
     ))
 
-proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSummary] =
+proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
+    sort: string = "updated_desc"): seq[PackageSummary] =
   ## List packages with metadata and latest version, paginated
+  let orderBy = case sort
+    of "published_desc": "p.created_at DESC"
+    of "updated_desc": "p.updated_at DESC"
+    else: "p.updated_at DESC"
   for row in s.db.all("""
-    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.updated_at,
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.created_at, p.updated_at,
            v.major, v.minor, v.patch, v.head_commit, v.published_at
     FROM packages p
     LEFT JOIN versions v ON v.id = (
@@ -272,7 +277,7 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSu
       ORDER BY major DESC, minor DESC, patch DESC
       LIMIT 1
     )
-    ORDER BY p.name
+    ORDER BY """ & orderBy & """
     LIMIT ? OFFSET ?
   """, limit.int64, offset.int64):
     var tags: seq[string] = @[]
@@ -284,12 +289,12 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSu
       discard
 
     var latestVersion = ""
-    if row[7].kind != sqliteNull:
-      let headCommit = if row[10].kind == sqliteNull: "" else: row[10].strVal
+    if row[8].kind != sqliteNull:
+      let headCommit = if row[11].kind == sqliteNull: "" else: row[11].strVal
       if headCommit.len > 0:
         latestVersion = "#head"
       else:
-        latestVersion = $row[7].intVal & "." & $row[8].intVal & "." & $row[9].intVal
+        latestVersion = $row[8].intVal & "." & $row[9].intVal & "." & $row[10].intVal
 
     result.add(PackageSummary(
       name: row[0].strVal,
@@ -299,8 +304,9 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int): seq[PackageSu
       url: row[4].strVal,
       tags: tags,
       latestVersion: latestVersion,
-      updatedAt: row[6].strVal,
-      latestVersionPublishedAt: if row[11].kind != sqliteNull: row[11].strVal else: ""
+      createdAt: row[6].strVal,
+      updatedAt: row[7].strVal,
+      latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].strVal else: ""
     ))
 
 proc countPackages*(s: DbStorage): int =

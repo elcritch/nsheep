@@ -147,12 +147,18 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     var page = 1
     var limit = 50
+    var sort = "updated_desc"
 
     try:
       if "page" in request.queryParams:
         page = parseInt(request.queryParams["page"])
       if "limit" in request.queryParams:
         limit = parseInt(request.queryParams["limit"])
+      if "sort" in request.queryParams:
+        sort = request.queryParams["sort"]
+        if sort notin ["updated_desc", "published_desc"]:
+          sendError(request, 400, "invalid_params", "sort must be updated_desc or published_desc")
+          return
     except ValueError:
       sendError(request, 400, "invalid_params", "page and limit must be integers")
       return
@@ -166,7 +172,7 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
 
     let offset = (page - 1) * limit
 
-    let summaries = listPackageSummariesPaged(state.store, offset, limit)
+    let summaries = listPackageSummariesPaged(state.store, offset, limit, sort)
     let total = countPackages(state.store)
 
     var arr = newJArray()
@@ -435,7 +441,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/", serveIndex(state))
   router.get("/app.js", serveStaticFile(state, "app.js"))
   router.get("/app.css", serveStaticFile(state, "app.css"))
-  
+
   # SPA catch-all: serve index.html for any non-API route
   router.get("/**", serveIndex(state))
 

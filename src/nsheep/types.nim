@@ -21,6 +21,7 @@ type
   PackageVersion* = object
     ## Immutable version info
     version*: SemVer
+    headCommit*: string ## non-empty for #head versions
     tarballPath*: string
     checksum*: Checksum
     size*: int64
@@ -67,7 +68,7 @@ proc parseSemVer*(s: string): Option[SemVer] =
   let parts = s.split('.')
   if parts.len != 3:
     return none(SemVer)
-  
+
   try:
     let major = parseInt(parts[0])
     let minor = parseInt(parts[1])
@@ -90,14 +91,14 @@ proc initPackageName*(s: string): PackageName {.raises: [ValueError].} =
   ## Rules: alphanumeric, hyphen, underscore only. Must start with letter.
   if s.len == 0 or s.len > 100:
     raise newException(ValueError, "package name length must be 1-100")
-  
+
   if s[0] notin {'a'..'z', 'A'..'Z'}:
     raise newException(ValueError, "package name must start with letter")
-  
+
   for c in s:
     if c notin {'a'..'z', 'A'..'Z', '0'..'9', '-', '_'}:
       raise newException(ValueError, "invalid character in package name: " & c)
-  
+
   result = PackageName(s)
 
 proc `$`*(n: PackageName): string {.inline.} = string(n)
@@ -111,6 +112,13 @@ proc initChecksum*(hex: string): Checksum {.raises: [ValueError].} =
   result = Checksum(hex.toLowerAscii())
 
 proc `$`*(c: Checksum): string {.inline.} = string(c)
+
+proc versionStr*(v: PackageVersion): string {.inline.} =
+  ## Render version as display string ("#head" or "x.y.z")
+  if v.headCommit.len > 0:
+    "#head"
+  else:
+    $v.version.major & "." & $v.version.minor & "." & $v.version.patch
 
 # --- Package operations ---
 

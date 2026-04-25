@@ -20,30 +20,30 @@ proc parseNimbleDump*(nimbleContent: string, pkgName: string): Table[string, str
   ## Parse nimble file using 'nimble dump --json' for accuracy
   ## Returns table with name, version, author, description, license, etc.
   result = initTable[string, string]()
-  
+
   # Create temp directory with minimal structure for nimble dump
   let tempDir = createTempDir("nsheep", "")
   defer: removeDir(tempDir)
-  
+
   let nimblePath = tempDir / (pkgName & ".nimble")
   writeFile(nimblePath, nimbleContent)
-  
+
   # Create minimal src dir to satisfy nimble
   createDir(tempDir / "src")
   writeFile(tempDir / "src" / (pkgName & ".nim"), "# dummy")
-  
+
   # Run nimble dump --json
   let (output, exitCode) = execCmdEx("nimble dump --json " & nimblePath.quoteShell)
   if exitCode != 0:
-    return result  # Return empty table on failure
-  
+    return result # Return empty table on failure
+
   try:
     let json = parseJson(output)
     for key, val in json:
       if val.kind == JString:
         result[key] = val.getStr()
   except JsonParsingError:
-    discard  # Return partial results on parse error
+    discard # Return partial results on parse error
 
 # --- Core ingestion logic ---
 
@@ -54,74 +54,93 @@ proc ingest*(
 ): Package {.raises: [IngestError, VcsError, StorageError, PuppyError, CatchableError, Exception].} =
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
-  
+
   info "Starting ingestion", repo = repo.path
-  
+
   # 1. Fetch repository metadata
   let (description, updatedAt) = fetchRepoMeta(client, repo)
   info "Fetched repository metadata"
-  
+
   # 2. Fetch releases / tags
   let releases = fetchVersions(client, repo)
   info "Fetched releases", count = releases.len
-  if releases.len == 0:
-    raise newException(NoVersionsError, "repository has no releases: " & repo.path)
-  
-  # 3. Parse releases into versions
+
+  # 3. Always fetch HEAD (in addition to releases)
+  let headOpt = fetchHeadVersion(client, repo)
+  if headOpt.isNone:
+    raise newException(NoVersionsError, "repository has no releases and no head: " & repo.path)
+  info "Fetched head", repo = repo.path
+
+  # 4. Parse releases into versions
   var versions = newSeq[PackageVersion]()
-  
+  let repoPkgName = initPackageName(repo.path.split('/')[^1])
+
+  # Process semver releases
   for rel in releases:
     let optVer = parseSemVer(rel.tag)
     if optVer.isNone:
-      continue  # Skip non-semver tags silently
-    
+      continue # Skip non-semver tags silently
+
     let ver = optVer.get()
-    let pkgName = initPackageName(repo.path.split('/')[^1])
-    
+
     # Check if already have this version
-    if versionExists(store, pkgName, ver):
+    if versionExists(store, repoPkgName, ver):
       # Already cached - just load metadata
-      # This is an optimization path
       continue
-    
+
     # Download tarball
     let tarballBytes = downloadTarball(client, repo, rel)
-    
+
     # Compute checksum
     # TODO: use std/sha256
-    let checksum = initChecksum("0" & repeat('0', 63))  # Placeholder
-    
+    let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+
     # Store version with tarball
-    storeVersion(store, pkgName, ver, tarballBytes, checksum, rel.publishedAt)
-    
+    storeVersion(store, repoPkgName, ver, tarballBytes, checksum, rel.publishedAt)
+
     versions.add(PackageVersion(
       version: ver,
+      headCommit: "",
       tarballPath: "",
       checksum: checksum,
       size: int64(tarballBytes.len),
       publishedAt: rel.publishedAt
     ))
-  
-  if versions.len == 0:
-    raise newException(NoVersionsError, "no valid semver releases found")
-  
+
+  # Always process HEAD version (update every time since HEAD changes)
+  let rel = headOpt.get()
+  let headSemVer = initSemVer(99999, 99999, 99999)
+
+  let tarballBytes = downloadTarball(client, repo, rel)
+  let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+  storeVersion(store, repoPkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
+
+  versions.add(PackageVersion(
+    version: headSemVer,
+    headCommit: "#head",
+    tarballPath: "",
+    checksum: checksum,
+    size: int64(tarballBytes.len),
+    publishedAt: rel.publishedAt
+  ))
+
   info "Downloaded versions", count = versions.len
-  
-  # 4. Fetch nimble file for metadata
-  let latestTag = releases[0].tag
+
+  # 5. Fetch nimble file for metadata
+  let latestTag = if releases.len > 0: releases[0].tag else: "HEAD"
   let nimbleOpt = fetchNimbleFile(client, repo, latestTag)
-  
+
   var nimbleData = initTable[string, string]()
   if nimbleOpt.isSome:
     nimbleData = parseNimbleDump(nimbleOpt.get(), repo.path.split('/')[^1])
-  
-  # 5. Build package
+
+  # 6. Build package
   let repoName = repo.path.split('/')[^1]
   let pkgName = try:
     initPackageName(nimbleData.getOrDefault("name", repoName))
   except ValueError:
     initPackageName(repoName)
-  
+
   let pkg = Package(
     name: pkgName,
     description: nimbleData.getOrDefault("description", description),
@@ -133,11 +152,15 @@ proc ingest*(
     createdAt: now(),
     updatedAt: updatedAt
   )
-  
-  # 6. Persist
+
+  # 7. Persist
   storePackage(store, pkg)
-  
-  # 7. Fetch and store READMEs for each version
+
+  # 8. Fetch and store READMEs
+  let readmeContent = fetchReadme(client, repo, "HEAD")
+  if readmeContent != "":
+    storeReadme(store, pkg.name.string, "#head", readmeContent)
+
   for rel in releases:
     let optVer = parseSemVer(rel.tag)
     if optVer.isNone:
@@ -147,7 +170,7 @@ proc ingest*(
     if readmeContent != "":
       let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
       storeReadme(store, pkg.name.string, versionStr, readmeContent)
-  
+
   info "Ingestion complete", package = $pkg.name, versions = pkg.versions.len
   result = pkg
 
@@ -159,14 +182,14 @@ proc updatePackage*(
   name: PackageName
 ): Package {.raises: [IngestError, VcsError, StorageError, storage.NotFoundError, Exception].} =
   ## Update existing package
-  
+
   # Load existing to get URL
   let existing = loadPackage(store, name)
-  
+
   # Parse URL to get repo
   let repoOpt = vcs.parseRepoUrl(existing.url)
   if repoOpt.isNone:
     raise newException(IngestError, "cannot parse repository URL: " & existing.url)
-  
+
   # Re-ingest
   result = ingest(client, store, repoOpt.get())

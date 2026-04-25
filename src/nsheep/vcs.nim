@@ -21,9 +21,9 @@ type
 
   RepoRef* = object
     host*: VcsHost
-    url*: string        # Canonical HTTPS URL
-    path*: string       # Normalized path for APIs
-    apiBase*: string    # For self-hosted GitLab instances
+    url*: string     # Canonical HTTPS URL
+    path*: string    # Normalized path for APIs
+    apiBase*: string # For self-hosted GitLab instances
 
   VersionInfo* = object
     tag*: string
@@ -43,15 +43,15 @@ type
 proc parseRepoUrl*(url: string): Option[RepoRef] =
   ## Parse any git hosting URL into a RepoRef.
   ## Returns none if the URL doesn't look like a git repository.
-  
+
   var input = url.strip()
   if input.len == 0:
     return none(RepoRef)
-  
+
   # Remove .git suffix
   if input.endsWith(".git"):
     input = input[0..^5]
-  
+
   # Convert SSH format: git@host.com:path/to/repo
   if input.startsWith("git@"):
     let atIdx = input.find('@')
@@ -60,21 +60,21 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
       let hostPart = input[atIdx+1..colonIdx-1]
       let pathPart = input[colonIdx+1..^1]
       input = "https://" & hostPart & "/" & pathPart
-  
+
   if not input.startsWith("https://"):
     return none(RepoRef)
-  
-  let rest = input[8..^1]  # Remove https://
+
+  let rest = input[8..^1] # Remove https://
   let hostEnd = rest.find('/')
   if hostEnd < 0:
     return none(RepoRef)
-  
+
   let hostname = rest[0..<hostEnd]
   let path = rest[hostEnd+1..^1]
-  
+
   if path.len == 0 or path.count('/') < 1:
     return none(RepoRef)
-  
+
   case hostname
   of "github.com":
     if path.count('/') == 1:
@@ -143,15 +143,15 @@ proc makeRequest(
     reqHeaders.add(Header(key: "Authorization", value: "Bearer " & client.token))
   if etag.len > 0:
     reqHeaders.add(Header(key: "If-None-Match", value: etag))
-  
+
   let response = get(url, reqHeaders)
-  
+
   var respEtag = ""
   for (key, value) in response.headers:
     if key.toLowerAscii == "etag":
       respEtag = value
       break
-  
+
   result = (code: response.code, body: response.body, etag: respEtag)
 
 proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
@@ -159,21 +159,22 @@ proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
   var etag = ""
   if cached.isSome:
     etag = cached.get.etag
-  
+
   let (code, body, respEtag) = makeRequest(client, url, @[
     Header(key: "User-Agent", value: "nsheep-" & Version),
-    Header(key: "Accept", value: "application/json")
+    Header(key: "Accept", value: "application/json"),
+    Header(key: "Accept-Encoding", value: "identity")
   ], etag)
-  
+
   if code == 304 and cached.isSome:
     result = parseJson(cached.get.body)
     return
-  
+
   if code >= 400:
     raise newException(VcsError, "HTTP " & $code & ": " & body[0..<min(200, body.len)])
-  
+
   result = parseJson(body)
-  
+
   if respEtag.len > 0:
     saveCache(client.cacheDir, cacheKey, respEtag, body)
 
@@ -197,23 +198,23 @@ proc githubFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
   let url = "https://api.github.com/repos/" & repo.path
   let cacheKey = "gh:repo:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   let desc = if json.hasKey("description") and json["description"].kind != JNull:
     json["description"].getStr() else: ""
   let updatedAt = if json.hasKey("updated_at"):
     try: parse(json["updated_at"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
     else: now()
-  
+
   result = (desc, updatedAt)
 
 proc githubFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
   let url = "https://api.github.com/repos/" & repo.path & "/releases?per_page=100"
   let cacheKey = "gh:releases:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   if json.kind != JArray:
     raise newException(VcsError, "expected array of releases")
-  
+
   for item in json:
     if not item.hasKey("tag_name") or not item.hasKey("published_at"):
       continue
@@ -222,13 +223,14 @@ proc githubFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
     let publishedAt = try:
       parse(item["published_at"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     except: now()
-    
+
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 
 proc githubFetchNimbleFile(client: VcsClient, repo: RepoRef, tag: string): Option[string] =
   let parts = repo.path.split('/')
   let repoName = parts[^1]
-  let url = "https://api.github.com/repos/" & repo.path & "/contents/" & repoName & ".nimble?ref=" & tag
+  let refName = if tag == "#head": "HEAD" else: tag
+  let url = "https://api.github.com/repos/" & repo.path & "/contents/" & repoName & ".nimble?ref=" & refName
   try:
     let (code, body, _) = makeRequest(client, url, @[
       Header(key: "User-Agent", value: "nsheep-" & Version),
@@ -247,7 +249,8 @@ proc githubFetchNimbleFile(client: VcsClient, repo: RepoRef, tag: string): Optio
     result = none(string)
 
 proc githubFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string =
-  let url = "https://raw.githubusercontent.com/" & repo.path & "/" & tag & "/README.md"
+  let refName = if tag == "#head": "HEAD" else: tag
+  let url = "https://raw.githubusercontent.com/" & repo.path & "/" & refName & "/README.md"
   try:
     result = cast[string](downloadHttp(url, client.token))
   except:
@@ -262,23 +265,23 @@ proc gitlabFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
   let url = repo.apiBase & "/api/v4/projects/" & gitlabEncodedPath(repo.path)
   let cacheKey = "gl:repo:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   let desc = if json.hasKey("description") and json["description"].kind != JNull:
     json["description"].getStr() else: ""
   let updatedAt = if json.hasKey("last_activity_at"):
     try: parse(json["last_activity_at"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
     else: now()
-  
+
   result = (desc, updatedAt)
 
 proc gitlabFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
   let url = repo.apiBase & "/api/v4/projects/" & gitlabEncodedPath(repo.path) & "/repository/tags?per_page=100"
   let cacheKey = "gl:tags:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   if json.kind != JArray:
     return
-  
+
   let repoName = repo.path.split('/')[^1]
   for item in json:
     if not item.hasKey("name"):
@@ -288,7 +291,7 @@ proc gitlabFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
     let publishedAt = if item.hasKey("commit") and item["commit"].hasKey("committed_date"):
       try: parse(item["commit"]["committed_date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
-    
+
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 
 proc gitlabFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
@@ -309,23 +312,23 @@ proc codebergFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
   let url = "https://codeberg.org/api/v1/repos/" & repo.path
   let cacheKey = "cb:repo:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   let desc = if json.hasKey("description") and json["description"].kind != JNull:
     json["description"].getStr() else: ""
   let updatedAt = if json.hasKey("updated_at"):
     try: parse(json["updated_at"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
     else: now()
-  
+
   result = (desc, updatedAt)
 
 proc codebergFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
   let url = "https://codeberg.org/api/v1/repos/" & repo.path & "/tags?page=-1"
   let cacheKey = "cb:tags:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   if json.kind != JArray:
     return
-  
+
   for item in json:
     if not item.hasKey("name"):
       continue
@@ -334,7 +337,7 @@ proc codebergFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
     let publishedAt = if item.hasKey("commit") and item["commit"].hasKey("timestamp"):
       try: parse(item["commit"]["timestamp"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
-    
+
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 
 proc codebergFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
@@ -355,23 +358,23 @@ proc bitbucketFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
   let url = "https://api.bitbucket.org/2.0/repositories/" & repo.path
   let cacheKey = "bb:repo:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   let desc = if json.hasKey("description") and json["description"].kind != JNull:
     json["description"].getStr() else: ""
   let updatedAt = if json.hasKey("updated_on"):
     try: parse(json["updated_on"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
     else: now()
-  
+
   result = (desc, updatedAt)
 
 proc bitbucketFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
   let url = "https://api.bitbucket.org/2.0/repositories/" & repo.path & "/refs/tags?pagelen=100"
   let cacheKey = "bb:tags:" & repo.path
   let json = getJson(client, url, cacheKey)
-  
+
   if not json.hasKey("values"):
     return
-  
+
   for item in json["values"]:
     if not item.hasKey("name"):
       continue
@@ -380,7 +383,7 @@ proc bitbucketFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] 
     let publishedAt = if item.hasKey("target") and item["target"].hasKey("date"):
       try: parse(item["target"]["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
-    
+
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 
 proc bitbucketFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
@@ -395,18 +398,104 @@ proc bitbucketFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string
   let opt = bitbucketFetchFile(client, repo, tag, "README.md")
   if opt.isSome: result = opt.get() else: result = ""
 
+proc githubFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
+  ## Fetch latest HEAD commit as a fallback for repos without releases.
+  let url = "https://api.github.com/repos/" & repo.path & "/commits?per_page=1"
+  let cacheKey = "gh:head:" & repo.path
+  try:
+    let json = getJson(client, url, cacheKey)
+    if json.kind != JArray or json.len == 0:
+      return none(VersionInfo)
+    let commit = json[0]
+    let commitDate = if commit.hasKey("commit") and commit["commit"].hasKey("committer") and commit["commit"][
+        "committer"].hasKey("date"):
+      try: parse(commit["commit"]["committer"]["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
+      else: now()
+    let tarballUrl = "https://api.github.com/repos/" & repo.path & "/tarball/HEAD"
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+  except CatchableError as e:
+    warn "Failed to fetch HEAD for GitHub repo", repo = repo.path, error = e.msg
+    result = none(VersionInfo)
+
+proc gitlabFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
+  ## Fetch latest HEAD commit for GitLab.
+  let url = repo.apiBase & "/api/v4/projects/" & gitlabEncodedPath(repo.path) & "/repository/commits?per_page=1"
+  let cacheKey = "gl:head:" & repo.path
+  try:
+    let json = getJson(client, url, cacheKey)
+    if json.kind != JArray or json.len == 0:
+      return none(VersionInfo)
+    let commit = json[0]
+    let commitDate = if commit.hasKey("committed_date"):
+      try: parse(commit["committed_date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
+      else: now()
+    let repoName = repo.path.split('/')[^1]
+    let tarballUrl = repo.apiBase & "/" & repo.path & "/-/archive/HEAD/" & repoName & "-HEAD.tar.gz"
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+  except CatchableError as e:
+    warn "Failed to fetch HEAD for GitLab repo", repo = repo.path, error = e.msg
+    result = none(VersionInfo)
+
+proc codebergFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
+  ## Fetch latest HEAD commit for Codeberg.
+  let url = "https://codeberg.org/api/v1/repos/" & repo.path & "/commits?limit=1"
+  let cacheKey = "cb:head:" & repo.path
+  try:
+    let json = getJson(client, url, cacheKey)
+    if json.kind != JArray or json.len == 0:
+      return none(VersionInfo)
+    let commit = json[0]
+    let commitDate = if commit.hasKey("commit") and commit["commit"].hasKey("committer") and commit["commit"][
+        "committer"].hasKey("date"):
+      try: parse(commit["commit"]["committer"]["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
+      else: now()
+    let tarballUrl = "https://codeberg.org/" & repo.path & "/archive/main.tar.gz"
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+  except CatchableError as e:
+    warn "Failed to fetch HEAD for Codeberg repo", repo = repo.path, error = e.msg
+    result = none(VersionInfo)
+
+proc bitbucketFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
+  ## Fetch latest HEAD commit for Bitbucket.
+  let url = "https://api.bitbucket.org/2.0/repositories/" & repo.path & "/commits?pagelen=1"
+  let cacheKey = "bb:head:" & repo.path
+  try:
+    let json = getJson(client, url, cacheKey)
+    if not json.hasKey("values") or json["values"].len == 0:
+      return none(VersionInfo)
+    let commit = json["values"][0]
+    let commitDate = if commit.hasKey("date"):
+      try: parse(commit["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
+      else: now()
+    let tarballUrl = "https://bitbucket.org/" & repo.path & "/get/HEAD.tar.gz"
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+  except CatchableError as e:
+    warn "Failed to fetch HEAD for Bitbucket repo", repo = repo.path, error = e.msg
+    result = none(VersionInfo)
+
+proc genericGitFetchHeadVersion(repo: RepoRef): Option[VersionInfo] =
+  ## Fetch HEAD commit via git ls-remote.
+  let cmd = "git ls-remote --heads " & repo.url.quoteShell & " HEAD 2>&1"
+  let (output, exitCode) = execCmdEx(cmd)
+  if exitCode != 0:
+    return none(VersionInfo)
+  let parts = output.strip().split('\t')
+  if parts.len < 2:
+    return none(VersionInfo)
+  result = some(VersionInfo(tag: "#head", tarballUrl: "", publishedAt: now()))
+
 # --- Generic Git Fallback ---
 
 proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
   ## List tags using git ls-remote; slow but works for any git host.
   let tempDir = createTempDir("nsheep", "git")
   defer: removeDir(tempDir)
-  
+
   let cmd = "git ls-remote --tags " & repo.url.quoteShell & " 2>&1"
   let (output, exitCode) = execCmdEx(cmd)
   if exitCode != 0:
     raise newException(VcsError, "git ls-remote failed: " & output)
-  
+
   for line in output.splitLines():
     let trimmed = line.strip()
     if trimmed.len == 0:
@@ -420,10 +509,10 @@ proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
     # Skip dereferenced annotated tags (^{})
     if refName.endsWith("^{}"):
       continue
-    
-    let tag = refName[10..^1]  # Remove "refs/tags/"
+
+    let tag = refName[10..^1] # Remove "refs/tags/"
     result.add(VersionInfo(tag: tag, tarballUrl: "", publishedAt: now()))
-  
+
   # Sort by semver-like ordering (newest first) where possible
   result.sort(proc (a, b: VersionInfo): int =
     # Simple string comparison fallback
@@ -434,21 +523,22 @@ proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   ## Clone and archive a specific tag. Slow but universal.
   let tempDir = createTempDir("nsheep", "gitdl")
   defer: removeDir(tempDir)
-  
+
   let repoName = repo.path.split('/')[^1]
   let cloneDir = tempDir / repoName
-  
-  let cloneCmd = "git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " & cloneDir.quoteShell & " 2>&1"
+
+  let cloneCmd = "git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
+      cloneDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
     raise newException(VcsError, "git clone failed: " & cloneOut)
-  
+
   let tarPath = tempDir / "archive.tar.gz"
   let tarCmd = "tar czf " & tarPath.quoteShell & " -C " & tempDir.quoteShell & " " & repoName.quoteShell & " 2>&1"
   let (tarOut, tarExit) = execCmdEx(tarCmd)
   if tarExit != 0:
     raise newException(VcsError, "tar failed: " & tarOut)
-  
+
   let fileSize = getFileSize(tarPath)
   result = newSeq[byte](fileSize)
   var f: File
@@ -463,21 +553,22 @@ proc genericGitFetchFile*(repo: RepoRef, tag, filename: string): Option[string] 
   ## Fetch a single file via shallow clone + read.
   let tempDir = createTempDir("nsheep", "gitfile")
   defer: removeDir(tempDir)
-  
-  let cloneCmd = "git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " & tempDir.quoteShell & " 2>&1"
+
+  let cloneCmd = "git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
+      tempDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
     return none(string)
-  
+
   let filePath = tempDir / filename
   if fileExists(filePath):
     return some(readFile(filePath))
-  
+
   # Fallback: find any .nimble file
   if filename.endsWith(".nimble"):
     for file in walkFiles(tempDir / "*.nimble"):
       return some(readFile(file))
-  
+
   return none(string)
 
 proc genericGitFetchReadme(repo: RepoRef, tag: string): string =
@@ -531,6 +622,16 @@ proc fetchVersions*(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
     warn "VCS version fetch failed", host = $repo.host, path = repo.path, error = e.msg
     raise
 
+proc fetchHeadVersion*(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
+  ## Fetch the latest HEAD commit as a fallback when no releases exist.
+  case repo.host
+  of vhGitHub: result = githubFetchHeadVersion(client, repo)
+  of vhGitLab: result = gitlabFetchHeadVersion(client, repo)
+  of vhCodeberg: result = codebergFetchHeadVersion(client, repo)
+  of vhBitbucket: result = bitbucketFetchHeadVersion(client, repo)
+  of vhSourceHut: result = genericGitFetchHeadVersion(repo)
+  of vhGenericGit: result = genericGitFetchHeadVersion(repo)
+
 proc downloadTarball*(client: VcsClient, repo: RepoRef, ver: VersionInfo): seq[byte] =
   ## Download tarball bytes for a specific version.
   case repo.host
@@ -553,7 +654,7 @@ proc fetchNimbleFile*(client: VcsClient, repo: RepoRef, tag: string): Option[str
   ## Fetch the .nimble file content for a tag.
   let repoName = repo.path.split('/')[^1]
   let filename = repoName & ".nimble"
-  
+
   try:
     case repo.host
     of vhGitHub: result = githubFetchNimbleFile(client, repo, tag)

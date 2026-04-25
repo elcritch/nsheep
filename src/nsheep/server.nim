@@ -27,13 +27,13 @@ proc sendError(request: Request, status: int, error, message: string) =
   headers["Content-Type"] = "application/json"
   headers["Cache-Control"] = "no-store"
   addSecurityHeaders(headers)
-  
+
   let body = %*{
     "error": error,
     "message": message,
     "timestamp": $now()
   }
-  
+
   request.respond(status, headers, pretty(body))
 
 proc sendJson(request: Request, data: JsonNode, cacheSeconds: int = 0) =
@@ -41,12 +41,12 @@ proc sendJson(request: Request, data: JsonNode, cacheSeconds: int = 0) =
   headers["Content-Type"] = "application/json"
   headers["Access-Control-Allow-Origin"] = "*"
   addSecurityHeaders(headers)
-  
+
   if cacheSeconds > 0:
     headers["Cache-Control"] = "public, max-age=" & $cacheSeconds
   else:
     headers["Cache-Control"] = "no-store"
-  
+
   request.respond(200, headers, pretty(data))
 
 # --- Handlers ---
@@ -63,16 +63,16 @@ proc handlePackagesJson(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let summaries = listPackageSummaries(state.store)
     let pubUrl = baseUrl(state, request)
-    
+
     var arr = newJArray()
     for s in summaries:
       if s.latestVersion.len == 0:
-        continue  # Skip packages with no downloadable versions
-      
+        continue # Skip packages with no downloadable versions
+
       var tags = newJArray()
       for t in s.tags:
-        tags.add(% t)
-      
+        tags.add( % t)
+
       arr.add(%*{
         "name": s.name,
         "url": pubUrl & "/download/" & s.name & "/" & s.latestVersion,
@@ -82,11 +82,11 @@ proc handlePackagesJson(state: ptr ServerState): RequestHandler =
         "tags": tags,
         "web": s.url
       })
-    
+
     var headers = emptyHttpHeaders()
     headers["Content-Type"] = "application/json"
     headers["Access-Control-Allow-Origin"] = "*"
-    headers["Cache-Control"] = "public, max-age=300"  # 5 min cache
+    headers["Cache-Control"] = "public, max-age=300" # 5 min cache
     addSecurityHeaders(headers)
     request.respond(200, headers, pretty(arr))
 
@@ -102,14 +102,14 @@ proc handleHealth(state: ptr ServerState): RequestHandler =
 proc handleGetPackage(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
-    
+
     # Validate name
     let name = try:
       initPackageName(nameStr)
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
-    
+
     # Load from storage
     let pkg = try:
       loadPackage(state.store, name)
@@ -119,17 +119,17 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
     except storage.StorageError as e:
       sendError(request, 500, "storage_error", e.msg)
       return
-    
+
     # Build response
     var versionsJson = newJArray()
     for v in pkg.versions:
       versionsJson.add(%*{
-        "version": $v.version.major & "." & $v.version.minor & "." & $v.version.patch,
+        "version": versionStr(v),
         "size": v.size,
         "checksum": $v.checksum,
         "publishedAt": $v.publishedAt
       })
-    
+
     let body = %*{
       "name": $pkg.name,
       "description": pkg.description,
@@ -140,8 +140,8 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
       "versions": versionsJson,
       "updatedAt": $pkg.updatedAt
     }
-    
-    sendJson(request, body, cacheSeconds = 3600)  # 1 hour cache
+
+    sendJson(request, body, cacheSeconds = 3600) # 1 hour cache
 
 proc handleListPackages(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
@@ -173,7 +173,7 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
     for s in summaries:
       var tags = newJArray()
       for t in s.tags:
-        tags.add(% t)
+        tags.add( % t)
       arr.add(%*{
         "name": s.name,
         "description": s.description,
@@ -199,17 +199,17 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
 proc handleValidations(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
-    
+
     # Parse name
     let name = try:
       initPackageName(nameStr)
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
-    
+
     # Load validations
     let results = getLatestValidationResults(state.store, nameStr)
-    
+
     var arr = newJArray()
     for r in results:
       arr.add(%*{
@@ -217,20 +217,20 @@ proc handleValidations(state: ptr ServerState): RequestHandler =
         "success": r.success,
         "testedAt": $r.testedAt
       })
-    
+
     sendJson(request, arr, cacheSeconds = 300)
 
 proc handleReadme(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
-    
+
     # Parse name
     let name = try:
       initPackageName(nameStr)
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
-    
+
     # Load package
     let pkg = try:
       loadPackage(state.store, name)
@@ -240,19 +240,19 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
     except storage.StorageError as e:
       sendError(request, 500, "storage_error", e.msg)
       return
-    
+
     # Determine version
     var versionStr = ""
     if "version" in request.queryParams:
       versionStr = request.queryParams["version"]
     else:
       if pkg.versions.len > 0:
-        versionStr = $pkg.versions[0].version.major & "." & $pkg.versions[0].version.minor & "." & $pkg.versions[0].version.patch
-    
+        versionStr = types.versionStr(pkg.versions[0])
+
     if versionStr == "":
       sendError(request, 404, "not_found", "no versions found for package: " & nameStr)
       return
-    
+
     # Load README from storage
     let readme = try:
       loadReadme(state.store, nameStr, versionStr)
@@ -262,7 +262,7 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
     except storage.StorageError as e:
       sendError(request, 500, "storage_error", e.msg)
       return
-    
+
     var headers = emptyHttpHeaders()
     headers["Content-Type"] = "text/markdown; charset=utf-8"
     headers["Access-Control-Allow-Origin"] = "*"
@@ -272,74 +272,80 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
 proc handleDownloads(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
-    
+
     # Parse name
     let name = try:
       initPackageName(nameStr)
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
-    
+
     # Load download stats
     let stats = getDownloadStats(state.store, name.string)
-    
+
     var arr = newJArray()
     for s in stats:
       arr.add(%*{
         "version": s.version,
         "downloads": s.downloads
       })
-    
+
     sendJson(request, arr, cacheSeconds = 0)
 
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let nameStr = request.pathParams["name"]
     let versionStr = request.pathParams["version"]
-    
+
     # Parse name
     let name = try:
       initPackageName(nameStr)
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
-    
-    # Parse version
-    let optVer = parseSemVer(versionStr)
-    if optVer.isNone:
-      sendError(request, 400, "invalid_version", "expected semver: " & versionStr)
-      return
-    let version = optVer.get()
-    
+
+    # Parse version (semver or #head)
+    var version: SemVer
+    var headCommit = ""
+    if versionStr == "#head":
+      headCommit = "#head"
+      version = initSemVer(0, 0, 0)
+    else:
+      let optVer = parseSemVer(versionStr)
+      if optVer.isNone:
+        sendError(request, 400, "invalid_version", "expected semver or #head: " & versionStr)
+        return
+      version = optVer.get()
+
     # Record download
     try:
       recordDownload(state.store, nameStr, versionStr)
     except storage.StorageError as e:
       error "Failed to record download", package = nameStr, version = versionStr, error = e.msg
-    
+
     # Load tarball
     let data = try:
-      loadTarball(state.store, name, version)
+      loadTarball(state.store, name, version, headCommit)
     except storage.NotFoundError:
       sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
       return
     except storage.StorageError as e:
       sendError(request, 500, "storage_error", e.msg)
       return
-    
+
     # Serve with appropriate headers
     var headers = emptyHttpHeaders()
     headers["Content-Type"] = "application/gzip"
     headers["Content-Disposition"] = "attachment; filename=\"" & $name & "-" & versionStr & ".tar.gz\""
-    headers["Cache-Control"] = "public, max-age=31536000, immutable"  # 1 year
+    headers["Cache-Control"] = "public, max-age=31536000, immutable" # 1 year
     headers["Access-Control-Allow-Origin"] = "*"
     addSecurityHeaders(headers)
-    
+
     # Convert bytes to string for mummy
     var strData = newString(data.len)
     if data.len > 0:
       copyMem(addr strData[0], unsafeAddr data[0], data.len)
-    
+
     request.respond(200, headers, strData)
 
 # --- Static Files ---
@@ -352,14 +358,14 @@ proc serveStaticFile(state: ptr ServerState, fileName: string): RequestHandler =
       addSecurityHeaders(headers)
       request.respond(404, headers, "not found")
       return
-    
+
     let ext = splitFile(filePath).ext
     let contentType = case ext
     of ".js": "application/javascript"
     of ".css": "text/css"
     of ".html": "text/html"
     else: "application/octet-stream"
-    
+
     let data = readFile(filePath)
     var headers = emptyHttpHeaders()
     headers["Content-Type"] = contentType
@@ -381,12 +387,12 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages/@name/readme", handleReadme(state))
   router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
   router.get("/download/@name/@version", handleDownload(state))
-  
+
   # Static frontend assets
   router.get("/", serveIndex(state))
   router.get("/app.js", serveStaticFile(state, "app.js"))
   router.get("/app.css", serveStaticFile(state, "app.css"))
-  
+
   # CORS preflight
   router.options("/*", proc(request: Request) =
     var headers = emptyHttpHeaders()
@@ -401,23 +407,23 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
 
 proc runServer*(cfg: Config) =
   ## Run the HTTP server
-  
+
   # Initialize state
   var state: ServerState
   state.cfg = cfg
-  
+
   case cfg.storage
   of sbLocal:
     state.store = initStorage(cfg.local.dbPath, cfg.local.tarballDir)
   of sbCloudflare:
     raise newException(ValueError, "Cloudflare storage not yet implemented")
-  
+
   discard
-  
+
   # Setup router
   var router = Router()
   setupRoutes(router, addr state)
-  
+
   # Start server
   let server = newServer(router)
   info "Server starting", address = cfg.server.bindAddr, port = cfg.server.port

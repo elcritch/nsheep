@@ -81,6 +81,11 @@ proc fetchNimblePackages(): seq[NimblePkg] =
 proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): bool =
   ## Ingest a single package with validation, return true on success
 
+  # Skip if processed recently (hardcoded 6h window)
+  if packageProcessedRecently(fetcher.store, pkg.name):
+    info "Skipping recently processed package", repo = pkg.repo.path
+    return true
+
   # First validate if enabled and Docker is available
   if fetcher.validatorConfig.enabled:
     if not isDockerAvailable():

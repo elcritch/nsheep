@@ -237,6 +237,8 @@ proc validatorLoop(v: ptr ValidatorData) {.thread.} =
         for pkg in pkgs:
           if not v.running:
             break
+          if isFailedPackage(v.store, pkg.name):
+            continue
           if validationDoneRecently(v.store, pkg.name, v.interval):
             continue
           info "Validating package", repo = pkg.repo.path

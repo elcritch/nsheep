@@ -584,6 +584,13 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
       testedAt: if row[2].kind == sqliteNull: now() else: fromUnix(row[2].intVal).local()
     ))
 
+proc isFailedPackage*(s: DbStorage, pkgName: string): bool =
+  ## Check if a package is permanently failed (exists in failed_packages).
+  let row = s.db.one("""
+    SELECT 1 FROM failed_packages WHERE name = ?
+  """, pkgName)
+  return row.isSome
+
 proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if any validation result exists for this package within the given seconds.
   if withinSeconds <= 0:

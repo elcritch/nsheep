@@ -554,7 +554,9 @@ proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
   let cmd = "git ls-remote --tags " & repo.url.quoteShell & " 2>&1"
   let (output, exitCode) = execCmdEx(cmd)
   if exitCode != 0:
-    raise newException(VcsError, "git ls-remote failed: " & output)
+    # Repo may be private/deleted; return empty rather than fail the whole ingest
+    warn "git ls-remote returned error, assuming no tags", repo = repo.path, error = output
+    return
 
   var semverTags: seq[tuple[ver: SemVer, tag: string]] = @[]
   for line in output.splitLines():

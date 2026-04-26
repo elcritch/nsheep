@@ -64,14 +64,14 @@ proc ingest*(
   let (description, updatedAt) = fetchRepoMeta(client, repo)
   info "Fetched repository metadata"
 
-  # 2. Fetch releases / tags
+  # 2. Fetch tags
   let releases = fetchVersions(client, repo)
-  info "Fetched releases", count = releases.len
+  info "Fetched tags", count = releases.len
 
-  # 3. Always fetch HEAD (in addition to releases)
+  # 3. Always fetch HEAD (in addition to tags)
   let headOpt = fetchHeadVersion(client, repo)
   if headOpt.isNone:
-    raise newException(NoVersionsError, "repository has no releases and no head: " & repo.path)
+    raise newException(NoVersionsError, "repository has no tags and no head: " & repo.path)
   info "Fetched head", repo = repo.path
 
   # 4. Fetch nimble file for metadata (description, author, license)

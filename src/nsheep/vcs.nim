@@ -70,6 +70,14 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
   if input.startsWith("http://"):
     input = "https://" & input[7..^1]
 
+  # Strip query string and fragment (e.g., ?subdir=foo or #readme)
+  let queryIdx = input.find('?')
+  if queryIdx >= 0:
+    input = input[0..<queryIdx]
+  let fragmentIdx = input.find('#')
+  if fragmentIdx >= 0:
+    input = input[0..<fragmentIdx]
+
   if not input.startsWith("https://"):
     return none(RepoRef)
 

@@ -183,7 +183,8 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
   try:
     let tagsJson = parseJson(tagsStr)
     result.tags = tagsJson.getElems().mapIt(it.getStr())
-  except:
+  except CatchableError as e:
+    warn "Failed to parse package tags", name = name.string, error = e.msg
     result.tags = @[]
 
   # Parse timestamps
@@ -255,8 +256,8 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
     try:
       let tagsJson = parseJson(tagsStr)
       tags = tagsJson.getElems().mapIt(it.getStr())
-    except:
-      discard
+    except CatchableError as e:
+      warn "Failed to parse package tags in summary", tags = tagsStr, error = e.msg
 
     var latestVersion = ""
     if row[8].kind != sqliteNull:
@@ -313,8 +314,8 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
     try:
       let tagsJson = parseJson(tagsStr)
       tags = tagsJson.getElems().mapIt(it.getStr())
-    except:
-      discard
+    except CatchableError as e:
+      warn "Failed to parse package tags in search", tags = tagsStr, error = e.msg
 
     var latestVersion = ""
     if row[8].kind != sqliteNull:
@@ -402,7 +403,8 @@ proc storeVersion*(
         checksum = excluded.checksum,
         published_at = excluded.published_at,
         updated_at = unixepoch()
-    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum, publishedAt.toTime.toUnix)
+    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum,
+        publishedAt.toTime.toUnix)
   else:
     s.db.exec("""
       INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
@@ -413,7 +415,8 @@ proc storeVersion*(
         checksum = excluded.checksum,
         published_at = excluded.published_at,
         updated_at = unixepoch()
-    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, nil, tarPath, tarball.len.int64, $checksum, publishedAt.toTime.toUnix)
+    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, nil, tarPath, tarball.len.int64, $checksum,
+        publishedAt.toTime.toUnix)
 
 proc loadTarball*(
   s: DbStorage,
@@ -757,8 +760,8 @@ proc getTopTags*(s: DbStorage, limit: int = 20): seq[TopTag] =
         let tag = t.getStr()
         if tag.len > 0:
           tagCounts[tag] = tagCounts.getOrDefault(tag, 0) + 1
-    except:
-      discard
+    except CatchableError as e:
+      warn "Failed to parse tags for tag stats", tags = tagsStr, error = e.msg
 
   for tag, count in tagCounts:
     result.add(TopTag(tag: tag, count: count))

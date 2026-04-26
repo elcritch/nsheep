@@ -261,8 +261,8 @@ type
 proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
   ## List all packages with metadata and latest version
   for row in s.db.all("""
-    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.created_at, p.updated_at,
-           v.major, v.minor, v.patch, v.head_commit, v.published_at
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, CAST(p.created_at AS INTEGER), CAST(p.updated_at AS INTEGER),
+           v.major, v.minor, v.patch, v.head_commit, CAST(v.published_at AS INTEGER)
     FROM packages p
     LEFT JOIN versions v ON v.id = (
       SELECT id FROM versions
@@ -312,8 +312,8 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
   let searchPattern = if search.len > 0: "%" & search & "%" else: ""
   let tagPattern = if tag.len > 0: "%\"" & tag & "\"%" else: ""
   for row in s.db.all("""
-    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.created_at, p.updated_at,
-           v.major, v.minor, v.patch, v.head_commit, v.published_at
+    SELECT p.name, p.description, p.author, p.license, p.url, p.tags, CAST(p.created_at AS INTEGER), CAST(p.updated_at AS INTEGER),
+           v.major, v.minor, v.patch, v.head_commit, CAST(v.published_at AS INTEGER)
     FROM packages p
     LEFT JOIN versions v ON v.id = (
       SELECT id FROM versions

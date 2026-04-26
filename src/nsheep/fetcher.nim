@@ -104,7 +104,7 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
   # Then ingest
   for attempt in 1..MaxRetries:
     try:
-      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags)
+      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags, fetcher.fetcherConfig.interval)
       return irSuccess
     except VcsNotFoundError as e:
       warn "Repository not found, giving up", repo = pkg.repo.path, error = e.msg

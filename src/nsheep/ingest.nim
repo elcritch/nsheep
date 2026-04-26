@@ -52,7 +52,8 @@ proc ingest*(
   store: DbStorage,
   repo: RepoRef,
   canonicalName: string = "",
-  tags: seq[string] = @[]
+  tags: seq[string] = @[],
+  headInterval: int = 3600
 ): Package {.raises: [IngestError, VcsError, StorageError, PuppyError, CatchableError, Exception].} =
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
@@ -142,11 +143,11 @@ proc ingest*(
       publishedAt: rel.publishedAt
     ))
 
-  # Process HEAD version (skip re-download if fetched within 1 hour)
+  # Process HEAD version (skip re-download if fetched recently)
   let rel = headOpt.get()
   let headSemVer = initSemVer(99999, 99999, 99999)
 
-  if not headVersionFetchedRecently(store, pkgName, 1):
+  if not headVersionFetchedRecently(store, pkgName, headInterval):
     let tarballBytes = downloadTarball(client, repo, rel)
     let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
     storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")

@@ -473,8 +473,8 @@ proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit:
     """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
   return row.isSome
 
-proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours: int = 1): bool =
-  ## Check if #head was fetched within the given number of hours
+proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinSeconds: int = 3600): bool =
+  ## Check if #head was fetched within the given number of seconds
   let row = s.db.one("""
     SELECT CAST(v.updated_at AS INTEGER) FROM versions v
     JOIN packages p ON v.package_id = p.id
@@ -487,7 +487,7 @@ proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours
     return false
 
   let updatedAt = row.get()[0].intVal
-  result = (getTime().toUnix - updatedAt) < withinHours.int64 * 3600
+  result = (getTime().toUnix - updatedAt) < withinSeconds.int64
 
 proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if the fetcher fully processed a package within the given seconds.

@@ -1,6 +1,6 @@
 # NSheep Makefile
 
-.PHONY: all build release test clean install docker run dev
+.PHONY: all build release frontend test clean install docker run dev
 
 # Default target
 all: build

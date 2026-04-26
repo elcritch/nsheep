@@ -15,10 +15,12 @@ frontend:
 # Build debug version
 build: frontend
 	nim c -o:nsheep src/nsheep.nim
+	nim c -o:nsheep-fetcher src/nsheep/fetcher.nim
 
 # Build release version
 release: frontend
 	nim c -d:release -o:nsheep src/nsheep.nim
+	nim c -d:release -o:nsheep-fetcher src/nsheep/fetcher.nim
 
 # Build with optimization
 optimize:
@@ -30,7 +32,7 @@ test:
 
 # Clean build artifacts
 clean:
-	rm -f nsheep
+	rm -f nsheep nsheep-fetcher
 	rm -rf nimcache
 	rm -rf dist
 	rm -rf public
@@ -74,7 +76,7 @@ docs:
 # Create distribution
 dist: release
 	mkdir -p dist/nsheep
-	cp nsheep dist/nsheep/
+	cp nsheep nsheep-fetcher dist/nsheep/
 	cp config.json dist/nsheep/
 	cp README.md dist/nsheep/
 	cp LICENSE dist/nsheep/

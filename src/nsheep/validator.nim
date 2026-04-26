@@ -35,7 +35,7 @@ proc defaultValidatorConfig*(): ValidatorConfig =
     required: false
   )
 
-proc runDockerBuild(repoUrl, tag, dockerImage: string, timeout: int): BuildResult =
+proc runDockerBuild(repoUrl, tag, subdir, dockerImage: string, timeout: int): BuildResult =
   ## Run a single build in Docker
   result.version = tag
   
@@ -43,6 +43,7 @@ proc runDockerBuild(repoUrl, tag, dockerImage: string, timeout: int): BuildResul
   defer: removeDir(tempDir)
   
   let srcDir = tempDir / "src"
+  let workDir = if subdir.len > 0: srcDir / subdir else: srcDir
   
   # Clone specific tag/branch (shallow, single-branch to minimize data)
   let cloneCmd = if tag == "default":
@@ -63,7 +64,7 @@ proc runDockerBuild(repoUrl, tag, dockerImage: string, timeout: int): BuildResul
   # Find .nimble file to get package name
   var nimbleFile = ""
   var pkgName = ""
-  for file in walkFiles(srcDir / "*.nimble"):
+  for file in walkFiles(workDir / "*.nimble"):
     nimbleFile = file.extractFilename
     pkgName = nimbleFile.replace(".nimble", "")
     break
@@ -76,9 +77,10 @@ proc runDockerBuild(repoUrl, tag, dockerImage: string, timeout: int): BuildResul
   
   # Run Docker validation: nimble c <pkgname>
   # This compiles the package's entry point defined in the .nimble file
+  let dockerWorkDir = if subdir.len > 0: "/src/" & subdir else: "/src"
   let dockerCmd = "docker run --rm " &
     "-v " & srcDir & ":/src:ro " &
-    "-w /src " &
+    "-w " & dockerWorkDir.quoteShell & " " &
     dockerImage & " " &
     "nimble c " & pkgName & " 2>&1"
   
@@ -118,7 +120,7 @@ proc getLatestTags(repoUrl: string, count: int): seq[string] =
 
 proc validatePackage*(
   s: DbStorage,
-  repoUrl, repoName: string,
+  repoUrl, repoName, subdir: string,
   config: ValidatorConfig = defaultValidatorConfig()
 ): ValidationResult =
   ## Validate a package by building default branch + latest tags, store results in DB
@@ -133,7 +135,7 @@ proc validatePackage*(
   
   # Build default branch
   info "Building default branch", repo = result.repo
-  result.defaultBranch = runDockerBuild(repoUrl, "default", config.dockerImage, config.timeout)
+  result.defaultBranch = runDockerBuild(repoUrl, "default", subdir, config.dockerImage, config.timeout)
   
   # Store default branch result
   s.storeValidationResult(
@@ -156,7 +158,7 @@ proc validatePackage*(
   
   for tag in tags:
     info "Building tagged version", repo = result.repo, tag = tag
-    let buildResult = runDockerBuild(repoUrl, tag, config.dockerImage, config.timeout)
+    let buildResult = runDockerBuild(repoUrl, tag, subdir, config.dockerImage, config.timeout)
     result.versions.add(buildResult)
     
     # Store version result
@@ -181,7 +183,7 @@ proc isDockerAvailable*(): bool =
   let (_, exitCode) = execCmdEx("docker ps")
   return exitCode == 0
 
-proc validateOrSkip*(s: DbStorage, repoUrl, repoName: string, config: ValidatorConfig): bool =
+proc validateOrSkip*(s: DbStorage, repoUrl, repoName, subdir: string, config: ValidatorConfig): bool =
   ## Validate if enabled and Docker available, otherwise return true (skip)
   if not config.enabled:
     return true
@@ -190,5 +192,5 @@ proc validateOrSkip*(s: DbStorage, repoUrl, repoName: string, config: ValidatorC
     warn "Docker not available, skipping validation", repo = repoName
     return true
   
-  let res = validatePackage(s, repoUrl, repoName, config)
+  let res = validatePackage(s, repoUrl, repoName, subdir, config)
   return res.overallSuccess

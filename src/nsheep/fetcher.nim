@@ -242,7 +242,7 @@ proc validatorLoop(v: ptr ValidatorData) {.thread.} =
           if validationDoneRecently(v.store, pkg.name, v.interval):
             continue
           info "Validating package", repo = pkg.repo.path
-          let result = validatePackage(v.store, pkg.repo.url, pkg.name, v.config)
+          let result = validatePackage(v.store, pkg.repo.url, pkg.name, pkg.repo.subdir, v.config)
           if result.overallSuccess:
             info "Validation passed", repo = pkg.repo.path
           else:

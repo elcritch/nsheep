@@ -24,6 +24,7 @@ type
     url*: string     # Canonical HTTPS URL
     path*: string    # Normalized path for APIs
     apiBase*: string # For self-hosted GitLab instances
+    subdir*: string  # Subdirectory inside the repo (from ?subdir= query param)
 
   VersionInfo* = object
     tag*: string
@@ -70,13 +71,20 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
   if input.startsWith("http://"):
     input = "https://" & input[7..^1]
 
-  # Strip query string and fragment (e.g., ?subdir=foo or #readme)
-  let queryIdx = input.find('?')
-  if queryIdx >= 0:
-    input = input[0..<queryIdx]
+  # Strip fragment first, then extract ?subdir=...
   let fragmentIdx = input.find('#')
   if fragmentIdx >= 0:
     input = input[0..<fragmentIdx]
+
+  var subdir = ""
+  let queryIdx = input.find('?')
+  if queryIdx >= 0:
+    let query = input[queryIdx+1..^1]
+    for part in query.split('&'):
+      if part.startsWith("subdir="):
+        subdir = part[7..^1]
+        break
+    input = input[0..<queryIdx]
 
   if not input.startsWith("https://"):
     return none(RepoRef)
@@ -97,24 +105,31 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
   case hostname
   of "github.com":
     if path.count('/') == 1:
-      result = some(RepoRef(host: vhGitHub, url: input, path: path))
+      result = some(RepoRef(host: vhGitHub, url: input, path: path, subdir: subdir))
   of "gitlab.com":
-    result = some(RepoRef(host: vhGitLab, url: input, path: path, apiBase: "https://gitlab.com"))
+    result = some(RepoRef(host: vhGitLab, url: input, path: path, apiBase: "https://gitlab.com", subdir: subdir))
   of "codeberg.org":
     if path.count('/') == 1:
-      result = some(RepoRef(host: vhCodeberg, url: input, path: path))
+      result = some(RepoRef(host: vhCodeberg, url: input, path: path, subdir: subdir))
   of "bitbucket.org":
     if path.count('/') == 1:
-      result = some(RepoRef(host: vhBitbucket, url: input, path: path))
+      result = some(RepoRef(host: vhBitbucket, url: input, path: path, subdir: subdir))
   of "git.sr.ht":
     if path.startsWith("~") and path.count('/') == 1:
-      result = some(RepoRef(host: vhSourceHut, url: input, path: path))
+      result = some(RepoRef(host: vhSourceHut, url: input, path: path, subdir: subdir))
   else:
     # Self-hosted GitLab or other unknown git host
     if hostname.contains("gitlab"):
-      result = some(RepoRef(host: vhGitLab, url: input, path: path, apiBase: "https://" & hostname))
+      result = some(RepoRef(host: vhGitLab, url: input, path: path, apiBase: "https://" & hostname, subdir: subdir))
     else:
-      result = some(RepoRef(host: vhGenericGit, url: input, path: path))
+      result = some(RepoRef(host: vhGenericGit, url: input, path: path, subdir: subdir))
+
+proc subdirPath*(repo: RepoRef, filename: string): string =
+  ## Prepend repo.subdir to filename if present.
+  if repo.subdir.len > 0:
+    result = repo.subdir & "/" & filename
+  else:
+    result = filename
 
 # --- HTTP Helpers ---
 
@@ -293,11 +308,9 @@ proc githubFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
 
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 
-proc githubFetchNimbleFile(client: VcsClient, repo: RepoRef, tag: string): Option[string] =
-  let parts = repo.path.split('/')
-  let repoName = parts[^1]
+proc githubFetchNimbleFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
   let refName = if tag == "#head": "HEAD" else: tag
-  let url = "https://api.github.com/repos/" & repo.path & "/contents/" & repoName & ".nimble?ref=" & refName
+  let url = "https://api.github.com/repos/" & repo.path & "/contents/" & filename & "?ref=" & refName
   try:
     let (code, body, _) = makeRequest(client, url, @[
       Header(key: "User-Agent", value: "nsheep-" & Version),
@@ -315,9 +328,9 @@ proc githubFetchNimbleFile(client: VcsClient, repo: RepoRef, tag: string): Optio
   except VcsNotFoundError:
     result = none(string)
 
-proc githubFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string =
+proc githubFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): string =
   let refName = if tag == "#head": "HEAD" else: tag
-  let url = "https://raw.githubusercontent.com/" & repo.path & "/" & refName & "/README.md"
+  let url = "https://raw.githubusercontent.com/" & repo.path & "/" & refName & "/" & path
   try:
     result = cast[string](downloadHttp(url, client.githubToken))
   except:
@@ -369,8 +382,8 @@ proc gitlabFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): O
   except:
     result = none(string)
 
-proc gitlabFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string =
-  let opt = gitlabFetchFile(client, repo, tag, "README.md")
+proc gitlabFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): string =
+  let opt = gitlabFetchFile(client, repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
 
 # --- Codeberg (Gitea/Forgejo) ---
@@ -415,8 +428,8 @@ proc codebergFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string):
   except:
     result = none(string)
 
-proc codebergFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string =
-  let opt = codebergFetchFile(client, repo, tag, "README.md")
+proc codebergFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): string =
+  let opt = codebergFetchFile(client, repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
 
 # --- Bitbucket ---
@@ -461,8 +474,8 @@ proc bitbucketFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string)
   except:
     result = none(string)
 
-proc bitbucketFetchReadme(client: VcsClient, repo: RepoRef, tag: string): string =
-  let opt = bitbucketFetchFile(client, repo, tag, "README.md")
+proc bitbucketFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): string =
+  let opt = bitbucketFetchFile(client, repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
 
 proc githubFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
@@ -676,8 +689,8 @@ proc genericGitFetchFile*(repo: RepoRef, tag, filename: string): Option[string] 
 
   return none(string)
 
-proc genericGitFetchReadme(repo: RepoRef, tag: string): string =
-  let opt = genericGitFetchFile(repo, tag, "README.md")
+proc genericGitFetchReadme(repo: RepoRef, tag, path: string): string =
+  let opt = genericGitFetchFile(repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
 
 # --- SourceHut ---
@@ -693,8 +706,8 @@ proc sourcehutFetchFile(repo: RepoRef, tag, filename: string): Option[string] =
   ## SourceHut raw file access via git show
   genericGitFetchFile(repo, tag, filename)
 
-proc sourcehutFetchReadme(repo: RepoRef, tag: string): string =
-  let opt = sourcehutFetchFile(repo, tag, "README.md")
+proc sourcehutFetchReadme(repo: RepoRef, tag, path: string): string =
+  let opt = sourcehutFetchFile(repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
 
 # --- Unified Public API ---
@@ -762,11 +775,11 @@ proc downloadTarball*(client: VcsClient, repo: RepoRef, ver: VersionInfo): seq[b
 proc fetchNimbleFile*(client: VcsClient, repo: RepoRef, tag: string): Option[string] =
   ## Fetch the .nimble file content for a tag.
   let repoName = repo.path.split('/')[^1]
-  let filename = repoName & ".nimble"
+  let filename = subdirPath(repo, repoName & ".nimble")
 
   try:
     case repo.host
-    of vhGitHub: result = githubFetchNimbleFile(client, repo, tag)
+    of vhGitHub: result = githubFetchNimbleFile(client, repo, tag, filename)
     of vhGitLab: result = gitlabFetchFile(client, repo, tag, filename)
     of vhCodeberg: result = codebergFetchFile(client, repo, tag, filename)
     of vhBitbucket: result = bitbucketFetchFile(client, repo, tag, filename)
@@ -778,14 +791,15 @@ proc fetchNimbleFile*(client: VcsClient, repo: RepoRef, tag: string): Option[str
 
 proc fetchReadme*(client: VcsClient, repo: RepoRef, tag: string): string =
   ## Fetch README.md content for a tag.
+  let path = subdirPath(repo, "README.md")
   try:
     case repo.host
-    of vhGitHub: result = githubFetchReadme(client, repo, tag)
-    of vhGitLab: result = gitlabFetchReadme(client, repo, tag)
-    of vhCodeberg: result = codebergFetchReadme(client, repo, tag)
-    of vhBitbucket: result = bitbucketFetchReadme(client, repo, tag)
-    of vhSourceHut: result = sourcehutFetchReadme(repo, tag)
-    of vhGenericGit: result = genericGitFetchReadme(repo, tag)
+    of vhGitHub: result = githubFetchReadme(client, repo, tag, path)
+    of vhGitLab: result = gitlabFetchReadme(client, repo, tag, path)
+    of vhCodeberg: result = codebergFetchReadme(client, repo, tag, path)
+    of vhBitbucket: result = bitbucketFetchReadme(client, repo, tag, path)
+    of vhSourceHut: result = sourcehutFetchReadme(repo, tag, path)
+    of vhGenericGit: result = genericGitFetchReadme(repo, tag, path)
   except CatchableError as e:
     warn "README fetch failed", host = $repo.host, path = repo.path, tag = tag, error = e.msg
     result = ""

@@ -209,14 +209,14 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     result.tags = @[]
 
   # Parse timestamps
-  try:
-    result.createdAt = fromUnix(r[6].intVal).local()
-  except:
+  if r[6].kind == sqliteNull:
     result.createdAt = now()
-  try:
-    result.updatedAt = fromUnix(r[7].intVal).local()
-  except:
+  else:
+    result.createdAt = fromUnix(r[6].intVal).local()
+  if r[7].kind == sqliteNull:
     result.updatedAt = now()
+  else:
+    result.updatedAt = fromUnix(r[7].intVal).local()
 
   # Load versions
   for vrow in s.db.all("""
@@ -228,7 +228,7 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     let ver = initSemVer(vrow[0].intVal.int, vrow[1].intVal.int, vrow[2].intVal.int)
     let headCommit = if vrow[3].kind == sqliteNull: "" else: vrow[3].strVal
     let checksum = initChecksum(vrow[6].strVal)
-    let publishedAt = try: fromUnix(vrow[7].intVal).local() except: now()
+    let publishedAt = if vrow[7].kind == sqliteNull: now() else: fromUnix(vrow[7].intVal).local()
     result.versions.add(PackageVersion(
       version: ver,
       headCommit: headCommit,
@@ -572,7 +572,7 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
     result.add((
       version: row[0].strVal,
       success: row[1].intVal != 0,
-      testedAt: fromUnix(row[2].intVal).local()
+      testedAt: if row[2].kind == sqliteNull: now() else: fromUnix(row[2].intVal).local()
     ))
 
 proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =

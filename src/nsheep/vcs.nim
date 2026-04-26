@@ -520,7 +520,7 @@ proc bitbucketFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[Version
 
 proc genericGitFetchHeadVersion(repo: RepoRef): Option[VersionInfo] =
   ## Fetch HEAD commit via git ls-remote.
-  let cmd = "git ls-remote --heads " & repo.url.quoteShell & " HEAD 2>&1"
+  let cmd = "GIT_TERMINAL_PROMPT=0 git ls-remote --heads " & repo.url.quoteShell & " HEAD 2>&1"
   let (output, exitCode) = execCmdEx(cmd)
   if exitCode != 0:
     return none(VersionInfo)
@@ -551,7 +551,7 @@ proc makeTarballUrl*(repo: RepoRef, tag: string): string =
 proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
   ## List tags using git ls-remote; works for any git host.
   ## Returns only the latest 2 semver tags.
-  let cmd = "git ls-remote --tags " & repo.url.quoteShell & " 2>&1"
+  let cmd = "GIT_TERMINAL_PROMPT=0 git ls-remote --tags " & repo.url.quoteShell & " 2>&1"
   let (output, exitCode) = execCmdEx(cmd)
   if exitCode != 0:
     # Repo may be private/deleted; return empty rather than fail the whole ingest
@@ -605,7 +605,7 @@ proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   let repoName = repo.path.split('/')[^1]
   let cloneDir = tempDir / repoName
 
-  let cloneCmd = "git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
+  let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
       cloneDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
@@ -632,7 +632,7 @@ proc genericGitFetchFile*(repo: RepoRef, tag, filename: string): Option[string] 
   let tempDir = createTempDir("nsheep", "gitfile")
   defer: removeDir(tempDir)
 
-  let cloneCmd = "git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
+  let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
       tempDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:

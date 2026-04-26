@@ -581,7 +581,7 @@ proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int):
     return false
   let row = s.db.one("""
     SELECT tested_at FROM validation_results
-    WHERE package_name = ?
+    WHERE package_name = ? AND tested_at IS NOT NULL
     ORDER BY tested_at DESC
     LIMIT 1
   """, pkgName)

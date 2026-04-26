@@ -103,7 +103,7 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
       info "Skipping recently validated package", repo = pkg.repo.path
       return irSkipped
     info "Validating package", repo = pkg.repo.path
-    let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.repo.path, fetcher.validatorConfig)
+    let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.name, fetcher.validatorConfig)
 
     if not validationResult.overallSuccess:
       if fetcher.validatorConfig.required:

@@ -229,7 +229,7 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
 
   # Load versions
   for vrow in s.db.all("""
-    SELECT major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at
+    SELECT major, minor, patch, head_commit, tarball_path, tarball_size, checksum, CAST(published_at AS INTEGER)
     FROM versions
     WHERE package_id = (SELECT id FROM packages WHERE name = ?)
     ORDER BY major DESC, minor DESC, patch DESC

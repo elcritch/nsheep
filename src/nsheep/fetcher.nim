@@ -18,20 +18,24 @@ type
     irFailed
     irSkipped
 
-  Fetcher* = ref object
+  FetcherData = object
     vcs*: VcsClient
     store*: DbStorage
     fetcherConfig*: FetcherConfig
     validatorConfig*: validator.ValidatorConfig
     running*: bool
-    thread*: Thread[Fetcher]
+    thread*: Thread[ptr FetcherData]
 
-  Validator* = ref object
+  Fetcher* = ref FetcherData
+
+  ValidatorData = object
     store*: DbStorage
     config*: validator.ValidatorConfig
     interval*: int
     running*: bool
-    thread*: Thread[Validator]
+    thread*: Thread[ptr ValidatorData]
+
+  Validator* = ref ValidatorData
 
   NimblePkg* = object
     ## Entry from nimble packages.json — carries the canonical name
@@ -65,7 +69,7 @@ proc fetchNimblePackages(): seq[NimblePkg] =
   ## Fetch and parse nimble packages.json
   info "Fetching nimble packages list"
 
-  let response = get(NimblePackagesUrl)
+  let response = get(NimblePackagesUrl, timeout = 30)
   if response.code != 200:
     raise newException(IOError, "failed to fetch packages.json: HTTP " & $response.code)
 
@@ -93,7 +97,7 @@ proc fetchNimblePackages(): seq[NimblePkg] =
 
   info "Parsed packages", count = result.len
 
-proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
+proc ingestPackage(fetcher: ptr FetcherData, pkg: NimblePkg): IngestResult =
   ## Ingest a single package
 
   # Skip if processed since last fetcher cycle
@@ -118,7 +122,7 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
   recordFailedPackage(fetcher.store, pkg.name, "permanent ingest failure")
   return irFailed
 
-proc shouldFetch(fetcher: Fetcher, pkg: NimblePkg): bool =
+proc shouldFetch(fetcher: ptr FetcherData, pkg: NimblePkg): bool =
   if fetcher.fetcherConfig.filterPatterns.len == 0:
     return true
 
@@ -128,7 +132,7 @@ proc shouldFetch(fetcher: Fetcher, pkg: NimblePkg): bool =
       return true
   return false
 
-proc runOnce(fetcher: Fetcher) =
+proc runOnce(fetcher: ptr FetcherData) =
   info "Starting fetch cycle"
 
   let pkgs = fetchNimblePackages()
@@ -154,19 +158,22 @@ proc runOnce(fetcher: Fetcher) =
   info "Fetch cycle complete", success = successCount, failed = failCount, skipped = skipCount,
       total = processedCount
 
-proc fetcherLoop(fetcher: Fetcher) {.thread.} =
+proc fetcherLoop(fetcher: ptr FetcherData) {.thread.} =
   info "Fetcher thread started", interval = fetcher.fetcherConfig.interval
 
-  while fetcher.running:
-    try:
-      runOnce(fetcher)
-    except CatchableError as e:
-      error "Fetch cycle error", error = e.msg
+  try:
+    while fetcher.running:
+      try:
+        runOnce(fetcher)
+      except CatchableError as e:
+        error "Fetch cycle error", error = e.msg
 
-    var slept = 0
-    while fetcher.running and slept < fetcher.fetcherConfig.interval:
-      sleep(1000)
-      slept.inc
+      var slept = 0
+      while fetcher.running and slept < fetcher.fetcherConfig.interval:
+        sleep(1000)
+        slept.inc
+  finally:
+    fetcher.running = false
 
   info "Fetcher thread stopped"
 
@@ -177,7 +184,7 @@ proc runFetcher*(fetcher: Fetcher) =
 
   while fetcher.running:
     try:
-      runOnce(fetcher)
+      runOnce(unsafeAddr fetcher[])
     except CatchableError as e:
       error "Fetch cycle error", error = e.msg
 
@@ -191,7 +198,7 @@ proc runFetcher*(fetcher: Fetcher) =
 proc startFetcher*(fetcher: Fetcher) =
   ## Start fetcher in background thread
   fetcher.running = true
-  createThread(fetcher.thread, fetcherLoop, fetcher)
+  createThread(fetcher.thread, fetcherLoop, unsafeAddr fetcher[])
 
 proc stopFetcher*(fetcher: Fetcher) =
   fetcher.running = false
@@ -212,44 +219,47 @@ proc initFetcher*(
 
 # --- Validator thread ---
 
-proc validatorLoop(v: Validator) {.thread.} =
+proc validatorLoop(v: ptr ValidatorData) {.thread.} =
   info "Validator thread started", interval = v.interval
 
-  while v.running:
-    if not v.config.enabled or not isDockerAvailable():
-      info "Validator disabled or Docker unavailable, sleeping"
+  try:
+    while v.running:
+      if not v.config.enabled or not isDockerAvailable():
+        info "Validator disabled or Docker unavailable, sleeping"
+        var slept = 0
+        while v.running and slept < v.interval:
+          sleep(1000)
+          slept.inc
+        continue
+
+      try:
+        let pkgs = fetchNimblePackages()
+        for pkg in pkgs:
+          if not v.running:
+            break
+          if validationDoneRecently(v.store, pkg.name, v.interval):
+            continue
+          info "Validating package", repo = pkg.repo.path
+          let result = validatePackage(v.store, pkg.repo.url, pkg.name, v.config)
+          if result.overallSuccess:
+            info "Validation passed", repo = pkg.repo.path
+          else:
+            warn "Validation failed", repo = pkg.repo.path
+      except CatchableError as e:
+        error "Validator cycle error", error = e.msg
+
       var slept = 0
       while v.running and slept < v.interval:
         sleep(1000)
         slept.inc
-      continue
-
-    try:
-      let pkgs = fetchNimblePackages()
-      for pkg in pkgs:
-        if not v.running:
-          break
-        if validationDoneRecently(v.store, pkg.name, v.interval):
-          continue
-        info "Validating package", repo = pkg.repo.path
-        let result = validatePackage(v.store, pkg.repo.url, pkg.name, v.config)
-        if result.overallSuccess:
-          info "Validation passed", repo = pkg.repo.path
-        else:
-          warn "Validation failed", repo = pkg.repo.path
-    except CatchableError as e:
-      error "Validator cycle error", error = e.msg
-
-    var slept = 0
-    while v.running and slept < v.interval:
-      sleep(1000)
-      slept.inc
+  finally:
+    v.running = false
 
   info "Validator thread stopped"
 
 proc startValidator*(v: Validator) =
   v.running = true
-  createThread(v.thread, validatorLoop, v)
+  createThread(v.thread, validatorLoop, unsafeAddr v[])
 
 proc stopValidator*(v: Validator) =
   v.running = false
@@ -328,6 +338,7 @@ when isMainModule:
     v.stopValidator()
 
     joinThread(f.thread)
-    joinThread(v.thread)
+    if cfg.validator.enabled:
+      joinThread(v.thread)
 
   main()

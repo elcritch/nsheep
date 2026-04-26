@@ -3,7 +3,7 @@
 ## Host-specific APIs where available; git CLI fallback for everything else.
 ##
 
-import std/[json, times, strutils, base64, os, options, osproc, tempfiles, algorithm]
+import std/[json, times, strutils, base64, os, options, osproc, tempfiles, algorithm, uri]
 import chronicles
 import puppy
 import nsheep/types
@@ -72,6 +72,8 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
   if not input.startsWith("https://"):
     return none(RepoRef)
 
+  input = input.strip(leading = false, trailing = true, chars = {'/'})
+
   let rest = input[8..^1] # Remove https://
   let hostEnd = rest.find('/')
   if hostEnd < 0:
@@ -138,7 +140,10 @@ proc loadCache(cacheDir, key: string): Option[CachedResponse] =
 proc saveCache(cacheDir, key: string, etag, body: string) =
   createDir(cacheDir)
   let path = cachePath(cacheDir, key)
-  writeFile(path, etag & "\n" & $getTime().toUnix & "\n" & body)
+  try:
+    writeFile(path, etag & "\n" & $getTime().toUnix & "\n" & body)
+  except CatchableError:
+    discard
 
 proc isGitHubUrl(url: string): bool =
   url.startsWith("https://github.com") or
@@ -147,7 +152,8 @@ proc isGitHubUrl(url: string): bool =
   url.startsWith("https://codeload.github.com")
 
 proc isGitLabUrl(url: string): bool =
-  url.startsWith("https://gitlab.com") or url.contains("gitlab")
+  let host = parseUri(url).hostname.toLowerAscii
+  host == "gitlab.com" or host.endsWith(".gitlab.com")
 
 proc isCodebergUrl(url: string): bool =
   url.startsWith("https://codeberg.org")
@@ -170,7 +176,8 @@ proc makeRequest(
   client: VcsClient,
   url: string,
   headers: seq[Header] = @[],
-  etag: string = ""
+  etag: string = "",
+  timeout: int = 10
 ): tuple[code: int, body: string, etag: string] =
   var reqHeaders = headers
   let token = tokenForUrl(client, url)
@@ -179,7 +186,7 @@ proc makeRequest(
   if etag.len > 0:
     reqHeaders.add(Header(key: "If-None-Match", value: etag))
 
-  let response = get(url, reqHeaders, timeout = 5)
+  let response = get(url, reqHeaders, timeout = timeout.float32)
 
   var respEtag = ""
   for (key, value) in response.headers:
@@ -202,7 +209,10 @@ proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
   ], etag)
 
   if code == 304 and cached.isSome:
-    result = parseJson(cached.get.body)
+    try:
+      result = parseJson(cached.get.body)
+    except JsonParsingError:
+      raise newException(VcsError, "cached JSON is corrupted for " & cacheKey)
     return
 
   if code == 404:
@@ -210,16 +220,19 @@ proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
   if code >= 400:
     raise newException(VcsError, "HTTP " & $code & ": " & body[0..<min(200, body.len)])
 
-  result = parseJson(body)
+  try:
+    result = parseJson(body)
+  except JsonParsingError:
+    raise newException(VcsError, "invalid JSON response from " & url)
 
   if respEtag.len > 0:
     saveCache(client.cacheDir, cacheKey, respEtag, body)
 
-proc downloadHttp*(url, token: string): seq[byte] =
+proc downloadHttp*(url, token: string, timeout: int = 120): seq[byte] =
   var headers: seq[Header] = @[Header(key: "User-Agent", value: "nsheep-" & Version)]
   if token.len > 0:
     headers.add(Header(key: "Authorization", value: "Bearer " & token))
-  let response = get(url, headers, timeout = 5)
+  let response = get(url, headers, timeout = timeout.float32)
   if response.code != 200:
     raise newException(VcsError, "download failed: HTTP " & $response.code)
   result = newSeq[byte](response.body.len)
@@ -708,25 +721,25 @@ proc downloadTarball*(client: VcsClient, repo: RepoRef, ver: VersionInfo): seq[b
   ## Download tarball bytes for a specific version.
   case repo.host
   of vhGitHub:
-    result = downloadHttp(ver.tarballUrl, client.githubToken)
+    result = downloadHttp(ver.tarballUrl, client.githubToken, timeout = 120)
   of vhGitLab:
     if ver.tarballUrl.len > 0:
-      result = downloadHttp(ver.tarballUrl, client.gitlabToken)
+      result = downloadHttp(ver.tarballUrl, client.gitlabToken, timeout = 120)
     else:
       raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
   of vhCodeberg:
     if ver.tarballUrl.len > 0:
-      result = downloadHttp(ver.tarballUrl, client.codebergToken)
+      result = downloadHttp(ver.tarballUrl, client.codebergToken, timeout = 120)
     else:
       raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
   of vhBitbucket:
     if ver.tarballUrl.len > 0:
-      result = downloadHttp(ver.tarballUrl, client.bitbucketToken)
+      result = downloadHttp(ver.tarballUrl, client.bitbucketToken, timeout = 120)
     else:
       raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
   of vhSourceHut:
     if ver.tarballUrl.len > 0:
-      result = downloadHttp(ver.tarballUrl, client.sourcehutToken)
+      result = downloadHttp(ver.tarballUrl, client.sourcehutToken, timeout = 120)
     else:
       result = genericGitDownloadTarball(repo, ver.tag)
   of vhGenericGit:

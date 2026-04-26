@@ -74,7 +74,7 @@ proc ingest*(
 
   # 3. Always fetch HEAD (in addition to tags)
   let headOpt = fetchHeadVersion(client, repo)
-  if headOpt.isNone:
+  if releases.len == 0 and headOpt.isNone:
     raise newException(NoVersionsError, "repository has no tags and no head: " & repo.path)
   info "Fetched head", repo = repo.path
 
@@ -147,21 +147,23 @@ proc ingest*(
     ))
 
   # Process HEAD version
-  let rel = headOpt.get()
-  let headSemVer = initSemVer(99999, 99999, 99999)
+  if headOpt.isSome:
+    let rel = headOpt.get()
+    let headSemVer = initSemVer(99999, 99999, 99999)
 
-  let tarballBytes = downloadTarball(client, repo, rel)
-  let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
-  storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
-  versions.add(PackageVersion(
-    version: headSemVer,
-    headCommit: "#head",
-    tarballPath: "",
-    checksum: checksum,
-    size: int64(tarballBytes.len),
-    publishedAt: rel.publishedAt
-  ))
-  info "Updated head version", repo = repo.path
+    if not versionExists(store, pkgName, headSemVer, "#head"):
+      let tarballBytes = downloadTarball(client, repo, rel)
+      let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+      storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
+      versions.add(PackageVersion(
+        version: headSemVer,
+        headCommit: "#head",
+        tarballPath: "",
+        checksum: checksum,
+        size: int64(tarballBytes.len),
+        publishedAt: rel.publishedAt
+      ))
+      info "Updated head version", repo = repo.path
 
   info "Downloaded versions", count = versions.len
 

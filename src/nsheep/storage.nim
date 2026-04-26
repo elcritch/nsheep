@@ -3,7 +3,7 @@
 ## SQLite for metadata, filesystem for tarballs
 ##
 
-import std/[times, os, strutils, sequtils, json, options, tables, algorithm]
+import std/[times, os, sequtils, json, options, tables, algorithm]
 import tiny_sqlite
 import chronicles
 import nsheep/types
@@ -113,6 +113,7 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
 
   # Wait up to 10s when the database is locked by another connection
   result.db.exec("PRAGMA busy_timeout = 10000")
+  result.db.exec("PRAGMA journal_mode = WAL")
 
   # Create tables
   result.db.execScript(Schema)
@@ -120,11 +121,11 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   # Migration: add columns for existing databases
   try:
     result.db.exec("ALTER TABLE versions ADD COLUMN head_commit TEXT")
-  except:
+  except CatchableError:
     discard
   try:
     result.db.exec("ALTER TABLE versions ADD COLUMN updated_at INTEGER DEFAULT (unixepoch())")
-  except:
+  except CatchableError:
     discard
 
   # Create tarball directory
@@ -141,7 +142,7 @@ proc close*(s: DbStorage) =
 proc storePackage*(s: DbStorage, pkg: Package) =
   ## Store or update a package. Does NOT touch updated_at on conflict —
   ## caller must call touchPackage() after successful ingest to bump the timestamp.
-  let tagsJson = "[" & pkg.tags.mapIt("\"" & it & "\"").join(",") & "]"
+  let tagsJson = $ %* pkg.tags
 
   s.db.exec("""
     INSERT INTO packages (name, description, author, license, url, tags, created_at, updated_at)
@@ -174,12 +175,12 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
 
   let r = row.get()
   result.name = name
-  result.description = r[1].strVal
-  result.author = r[2].strVal
-  result.license = r[3].strVal
+  result.description = if r[1].kind == sqliteNull: "" else: r[1].strVal
+  result.author = if r[2].kind == sqliteNull: "" else: r[2].strVal
+  result.license = if r[3].kind == sqliteNull: "" else: r[3].strVal
   result.url = r[4].strVal
   # Parse tags JSON
-  let tagsStr = r[5].strVal
+  let tagsStr = if r[5].kind == sqliteNull: "[]" else: r[5].strVal
   try:
     let tagsJson = parseJson(tagsStr)
     result.tags = tagsJson.getElems().mapIt(it.getStr())
@@ -252,7 +253,7 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
     ORDER BY p.name
   """):
     var tags: seq[string] = @[]
-    let tagsStr = row[5].strVal
+    let tagsStr = if row[5].kind == sqliteNull: "[]" else: row[5].strVal
     try:
       let tagsJson = parseJson(tagsStr)
       tags = tagsJson.getElems().mapIt(it.getStr())
@@ -269,9 +270,9 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
 
     result.add(PackageSummary(
       name: row[0].strVal,
-      description: row[1].strVal,
-      author: row[2].strVal,
-      license: row[3].strVal,
+      description: if row[1].kind == sqliteNull: "" else: row[1].strVal,
+      author: if row[2].kind == sqliteNull: "" else: row[2].strVal,
+      license: if row[3].kind == sqliteNull: "" else: row[3].strVal,
       url: row[4].strVal,
       tags: tags,
       latestVersion: latestVersion,
@@ -310,7 +311,7 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
       tagPattern, tagPattern,
       limit.int64, offset.int64):
     var tags: seq[string] = @[]
-    let tagsStr = row[5].strVal
+    let tagsStr = if row[5].kind == sqliteNull: "[]" else: row[5].strVal
     try:
       let tagsJson = parseJson(tagsStr)
       tags = tagsJson.getElems().mapIt(it.getStr())
@@ -327,9 +328,9 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
 
     result.add(PackageSummary(
       name: row[0].strVal,
-      description: row[1].strVal,
-      author: row[2].strVal,
-      license: row[3].strVal,
+      description: if row[1].kind == sqliteNull: "" else: row[1].strVal,
+      author: if row[2].kind == sqliteNull: "" else: row[2].strVal,
+      license: if row[3].kind == sqliteNull: "" else: row[3].strVal,
       url: row[4].strVal,
       tags: tags,
       latestVersion: latestVersion,
@@ -546,7 +547,7 @@ proc getValidationResult*(s: DbStorage, pkgName, version: string): Option[tuple[
     let r = row.get()
     result = some((
       success: r[0].kind != sqliteNull and r[0].intVal != 0,
-      output: r[1].strVal,
+      output: if r[1].kind == sqliteNull: "" else: r[1].strVal,
       durationMs: if r[2].kind == sqliteNull: 0 else: r[2].intVal.int
     ))
 

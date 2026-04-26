@@ -100,6 +100,9 @@ var
   totalDownloads = 0
   displayedCount = 0
   searchTimer: JsObject = nil
+  dropdownTimer: JsObject = nil
+  searchSuggestions: seq[PackageSummary] = @[]
+  showDropdown = false
   errorMessage = ""
   currentSort = soPublishedDesc
   totalPackages = 0
@@ -109,6 +112,7 @@ var
 # --- Forward Declarations ---
 
 proc fetchSummaries(page: int = 1)
+proc fetchSearchSuggestions(q: string)
 proc fetchDetail(name: string)
 proc fetchValidations(name: string)
 proc fetchReadme(name: string)
@@ -227,7 +231,13 @@ proc fetchText(url: cstring, cont: proc(text: string)) =
 proc fetchSummaries(page: int = 1) =
   loading = true
   errorMessage = ""
-  let url = "/api/v1/packages?page=" & $page & "&limit=" & $pageSize & "&sort=" & sortParam(currentSort)
+  var url = "/api/v1/packages?page=" & $page & "&limit=" & $pageSize & "&sort=" & sortParam(currentSort)
+  if searchQuery.len > 0:
+    url &= "&q=" & searchQuery
+  if activeAuthor.len > 0:
+    url &= "&author=" & activeAuthor
+  if activeTag.len > 0:
+    url &= "&tag=" & activeTag
   fetchJson(cstring(url),
     proc (data: JsonNode) =
     loading = false
@@ -257,6 +267,37 @@ proc fetchSummaries(page: int = 1) =
     applyFilters()
     redraw(),
     "Failed to load packages. Please try again."
+  )
+
+proc fetchSearchSuggestions(q: string) =
+  if q.len == 0:
+    searchSuggestions = @[]
+    showDropdown = false
+    redraw()
+    return
+  let url = "/api/v1/packages?q=" & q & "&limit=20"
+  fetchJson(cstring(url),
+    proc (data: JsonNode) =
+    var items: seq[PackageSummary] = @[]
+    if data.hasField("packages"):
+      for item in data["packages"]:
+        items.add(PackageSummary(
+          name: $item["name"].getStr(),
+          description: if item.hasField("description"): $item["description"].getStr() else: "",
+          author: if item.hasField("author"): $item["author"].getStr() else: "",
+          latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+          createdAt: if item.hasField("createdAt"): $item["createdAt"].getStr() else: "",
+          updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
+          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item[
+              "latestVersionPublishedAt"].getStr() else: "",
+          tags: if item.hasField("tags"):
+              (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
+            else: @[]
+          ))
+    searchSuggestions = items
+    showDropdown = items.len > 0
+    redraw(),
+    ""
   )
 
 proc fetchValidations(name: string) =
@@ -407,23 +448,7 @@ proc sortFiltered() =
         cmp(b.updatedAt, a.updatedAt)
 
 proc applyFilters() =
-  let q = searchQuery.toLowerAscii()
-  filtered = @[]
-  for s in summaries:
-    var matches = true
-    if q != "":
-      matches = s.name.toLowerAscii().contains(q) or s.description.toLowerAscii().contains(q)
-    if matches and activeAuthor != "":
-      matches = s.author == activeAuthor
-    if matches and activeTag != "":
-      var hasTag = false
-      for t in s.tags:
-        if t == activeTag:
-          hasTag = true
-          break
-      matches = hasTag
-    if matches:
-      filtered.add(s)
+  filtered = summaries
   displayedCount = filtered.len
 
 # --- Event Handlers ---
@@ -434,36 +459,60 @@ proc onSearchInput(ev: Event; target: VNode) =
   if searchTimer != nil:
     discard cast[JsObject](kdom.window).clearTimeout(searchTimer)
   searchTimer = cast[JsObject](kdom.window.setTimeout(proc() =
-    applyFilters()
-    redraw()
+    summaries = @[]
+    filtered = @[]
+    displayedCount = 0
+    fetchSummaries(1)
     searchTimer = nil
-  , 150))
+  , 300))
+  if dropdownTimer != nil:
+    discard cast[JsObject](kdom.window).clearTimeout(dropdownTimer)
+  dropdownTimer = cast[JsObject](kdom.window.setTimeout(proc() =
+    fetchSearchSuggestions(searchQuery)
+    dropdownTimer = nil
+  , 200))
 
 proc clickAuthor(author: string) =
   activeAuthor = author
-  applyFilters()
+  summaries = @[]
+  filtered = @[]
+  displayedCount = 0
   navigateTo(cstring"/")
 
 proc clickTag(tag: string) =
   activeTag = tag
-  applyFilters()
+  summaries = @[]
+  filtered = @[]
+  displayedCount = 0
   navigateTo(cstring"/")
 
 proc clearAuthor() =
   activeAuthor = ""
-  applyFilters()
-  redraw()
+  summaries = @[]
+  filtered = @[]
+  displayedCount = 0
+  fetchSummaries(1)
 
 proc clearTag() =
   activeTag = ""
-  applyFilters()
-  redraw()
+  summaries = @[]
+  filtered = @[]
+  displayedCount = 0
+  fetchSummaries(1)
 
 proc clearAllFilters() =
   searchQuery = ""
   activeAuthor = ""
   activeTag = ""
-  applyFilters()
+  searchSuggestions = @[]
+  showDropdown = false
+  summaries = @[]
+  filtered = @[]
+  displayedCount = 0
+  fetchSummaries(1)
+
+proc closeDropdown() =
+  showDropdown = false
   redraw()
 
 # --- Keyboard Navigation ---
@@ -481,6 +530,9 @@ proc onKeyDown(ev: Event) =
       if el != nil:
         discard cast[JsObject](el).focus()
   of "Escape":
+    if showDropdown:
+      closeDropdown()
+      return
     if searchQuery != "" or activeAuthor != "" or activeTag != "":
       clearAllFilters()
       let el = kdom.document.querySelector(cstring"#search-input")
@@ -515,8 +567,26 @@ proc onKeyDown(ev: Event) =
 proc renderHome(): VNode =
   buildHtml(tdiv(class = "page home")):
     tdiv(class = "search-wrap"):
-      input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…", value = cstring(searchQuery)):
-        proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
+      tdiv(class = "search-box"):
+        input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…", value = cstring(searchQuery)):
+          proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
+          proc onkeydown(ev: Event; target: VNode) =
+            let k = cast[KeyboardEvent](ev)
+            if $k.key == "Enter" and searchSuggestions.len > 0:
+              navigateTo(cstring("/package/" & searchSuggestions[0].name))
+              closeDropdown()
+        if showDropdown and searchSuggestions.len > 0:
+          tdiv(class = "search-dropdown"):
+            for i in 0 ..< searchSuggestions.len:
+              let s = searchSuggestions[i]
+              a(href = cstring("/package/" & s.name), class = "search-dropdown-item"):
+                proc onclick(ev: Event; target: VNode) =
+                  ev.preventDefault()
+                  navigateTo(cstring("/package/" & s.name))
+                  closeDropdown()
+                tdiv(class = "search-dropdown-name"): text s.name
+                if s.description.len > 0:
+                  tdiv(class = "search-dropdown-desc"): text s.description
       tdiv(class = "sort-segment"):
         button(class = cstring("sort-btn " & (if currentSort == soPublishedDesc: "sort-active" else: "")),
             onclick = proc() =

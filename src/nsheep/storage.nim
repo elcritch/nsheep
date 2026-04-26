@@ -261,12 +261,15 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
     ))
 
 proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
-    sort: string = "updated_desc"): seq[PackageSummary] =
+    sort: string = "updated_desc", search: string = "",
+    author: string = "", tag: string = ""): seq[PackageSummary] =
   ## List packages with metadata and latest version, paginated
   let orderBy = case sort
     of "published_desc": "p.created_at DESC"
     of "updated_desc": "p.updated_at DESC"
     else: "p.updated_at DESC"
+  let searchPattern = if search.len > 0: "%" & search & "%" else: ""
+  let tagPattern = if tag.len > 0: "%\"" & tag & "\"%" else: ""
   for row in s.db.all("""
     SELECT p.name, p.description, p.author, p.license, p.url, p.tags, p.created_at, p.updated_at,
            v.major, v.minor, v.patch, v.head_commit, v.published_at
@@ -277,9 +280,15 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
       ORDER BY major DESC, minor DESC, patch DESC
       LIMIT 1
     )
+    WHERE (? = '' OR p.name LIKE ? OR p.description LIKE ?)
+      AND (? = '' OR p.author = ?)
+      AND (? = '' OR p.tags LIKE ?)
     ORDER BY """ & orderBy & """
     LIMIT ? OFFSET ?
-  """, limit.int64, offset.int64):
+  """, searchPattern, searchPattern, searchPattern,
+      author, author,
+      tagPattern, tagPattern,
+      limit.int64, offset.int64):
     var tags: seq[string] = @[]
     let tagsStr = row[5].strVal
     try:
@@ -309,9 +318,19 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
       latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].strVal else: ""
     ))
 
-proc countPackages*(s: DbStorage): int =
-  ## Return total number of packages
-  let row = s.db.one("SELECT COUNT(*) FROM packages")
+proc countPackages*(s: DbStorage, search: string = "",
+    author: string = "", tag: string = ""): int =
+  ## Return total number of packages matching filters
+  let searchPattern = if search.len > 0: "%" & search & "%" else: ""
+  let tagPattern = if tag.len > 0: "%\"" & tag & "\"%" else: ""
+  let row = s.db.one("""
+    SELECT COUNT(*) FROM packages p
+    WHERE (? = '' OR p.name LIKE ? OR p.description LIKE ?)
+      AND (? = '' OR p.author = ?)
+      AND (? = '' OR p.tags LIKE ?)
+  """, searchPattern, searchPattern, searchPattern,
+      author, author,
+      tagPattern, tagPattern)
   if row.isSome:
     result = row.get()[0].intVal.int
   else:

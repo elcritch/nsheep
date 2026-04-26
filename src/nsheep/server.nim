@@ -148,6 +148,9 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
     var page = 1
     var limit = 50
     var sort = "updated_desc"
+    var search = ""
+    var author = ""
+    var tag = ""
 
     try:
       if "page" in request.queryParams:
@@ -159,6 +162,12 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
         if sort notin ["updated_desc", "published_desc"]:
           sendError(request, 400, "invalid_params", "sort must be updated_desc or published_desc")
           return
+      if "q" in request.queryParams:
+        search = request.queryParams["q"]
+      if "author" in request.queryParams:
+        author = request.queryParams["author"]
+      if "tag" in request.queryParams:
+        tag = request.queryParams["tag"]
     except ValueError:
       sendError(request, 400, "invalid_params", "page and limit must be integers")
       return
@@ -172,8 +181,8 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
 
     let offset = (page - 1) * limit
 
-    let summaries = listPackageSummariesPaged(state.store, offset, limit, sort)
-    let total = countPackages(state.store)
+    let summaries = listPackageSummariesPaged(state.store, offset, limit, sort, search, author, tag)
+    let total = countPackages(state.store, search, author, tag)
 
     var arr = newJArray()
     for s in summaries:

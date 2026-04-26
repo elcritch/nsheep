@@ -179,7 +179,7 @@ proc makeRequest(
   if etag.len > 0:
     reqHeaders.add(Header(key: "If-None-Match", value: etag))
 
-  let response = get(url, reqHeaders)
+  let response = get(url, reqHeaders, timeout = 5)
 
   var respEtag = ""
   for (key, value) in response.headers:
@@ -219,7 +219,7 @@ proc downloadHttp*(url, token: string): seq[byte] =
   var headers: seq[Header] = @[Header(key: "User-Agent", value: "nsheep-" & Version)]
   if token.len > 0:
     headers.add(Header(key: "Authorization", value: "Bearer " & token))
-  let response = get(url, headers)
+  let response = get(url, headers, timeout = 5)
   if response.code != 200:
     raise newException(VcsError, "download failed: HTTP " & $response.code)
   result = newSeq[byte](response.body.len)

@@ -479,16 +479,10 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
   ## Also checks failed_packages so deleted repos are not retried every cycle.
   if withinSeconds <= 0:
     return false
-  let row = s.db.one("""
-    SELECT CAST(updated_at AS INTEGER) FROM packages
-    WHERE name = ? AND updated_at IS NOT NULL
-  """, pkgName)
 
-  if row.isSome:
-    let updatedAt = row.get()[0].intVal
-    return (getTime().toUnix - updatedAt) < withinSeconds.int64
-
-  # Check if we recently failed this package permanently
+  # Check failed_packages first: a recent failure takes precedence over an old success.
+  # This prevents permanently-failed packages from being retried just because they
+  # were once successfully ingested long ago.
   let failedRow = s.db.one("""
     SELECT CAST(failed_at AS INTEGER) FROM failed_packages
     WHERE name = ?
@@ -497,6 +491,15 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
   if failedRow.isSome:
     let failedAt = failedRow.get()[0].intVal
     return (getTime().toUnix - failedAt) < withinSeconds.int64
+
+  let row = s.db.one("""
+    SELECT CAST(updated_at AS INTEGER) FROM packages
+    WHERE name = ? AND updated_at IS NOT NULL
+  """, pkgName)
+
+  if row.isSome:
+    let updatedAt = row.get()[0].intVal
+    return (getTime().toUnix - updatedAt) < withinSeconds.int64
 
   return false
 

@@ -531,16 +531,32 @@ proc genericGitFetchHeadVersion(repo: RepoRef): Option[VersionInfo] =
 
 # --- Generic Git Fallback ---
 
-proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
-  ## List tags using git ls-remote; slow but works for any git host.
-  let tempDir = createTempDir("nsheep", "git")
-  defer: removeDir(tempDir)
+proc makeTarballUrl*(repo: RepoRef, tag: string): string =
+  ## Construct tarball download URL for a host + tag.
+  case repo.host
+  of vhGitHub:
+    result = "https://github.com/" & repo.path & "/archive/refs/tags/" & tag & ".tar.gz"
+  of vhGitLab:
+    let repoName = repo.path.split('/')[^1]
+    result = "https://gitlab.com/" & repo.path & "/-/archive/" & tag & "/" & repoName & "-" & tag & ".tar.gz"
+  of vhCodeberg:
+    result = "https://codeberg.org/" & repo.path & "/archive/" & tag & ".tar.gz"
+  of vhBitbucket:
+    result = "https://bitbucket.org/" & repo.path & "/get/" & tag & ".tar.gz"
+  of vhSourceHut:
+    result = "https://git.sr.ht/" & repo.path & "/archive/" & tag & ".tar.gz"
+  of vhGenericGit:
+    result = ""
 
+proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
+  ## List tags using git ls-remote; works for any git host.
+  ## Returns only the latest 2 semver tags.
   let cmd = "git ls-remote --tags " & repo.url.quoteShell & " 2>&1"
   let (output, exitCode) = execCmdEx(cmd)
   if exitCode != 0:
     raise newException(VcsError, "git ls-remote failed: " & output)
 
+  var semverTags: seq[tuple[ver: SemVer, tag: string]] = @[]
   for line in output.splitLines():
     let trimmed = line.strip()
     if trimmed.len == 0:
@@ -556,13 +572,28 @@ proc genericGitFetchVersions*(repo: RepoRef): seq[VersionInfo] =
       continue
 
     let tag = refName[10..^1] # Remove "refs/tags/"
-    result.add(VersionInfo(tag: tag, tarballUrl: "", publishedAt: now()))
+    let optVer = parseSemVer(tag)
+    if optVer.isSome:
+      semverTags.add((ver: optVer.get(), tag: tag))
 
-  # Sort by semver-like ordering (newest first) where possible
-  result.sort(proc (a, b: VersionInfo): int =
-    # Simple string comparison fallback
-    cmp(b.tag, a.tag)
+  # Sort by semver descending (newest first)
+  semverTags.sort(proc (a, b: auto): int =
+    result = cmp(b.ver.major, a.ver.major)
+    if result != 0: return
+    result = cmp(b.ver.minor, a.ver.minor)
+    if result != 0: return
+    result = cmp(b.ver.patch, a.ver.patch)
   )
+
+  # Keep only latest 2
+  let maxTags = min(2, semverTags.len)
+  for i in 0..<maxTags:
+    let t = semverTags[i]
+    result.add(VersionInfo(
+      tag: t.tag,
+      tarballUrl: makeTarballUrl(repo, t.tag),
+      publishedAt: now()
+    ))
 
 proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   ## Clone and archive a specific tag. Slow but universal.
@@ -654,15 +685,9 @@ proc fetchRepoMeta*(client: VcsClient, repo: RepoRef): (string, DateTime) =
     result = ("", now())
 
 proc fetchVersions*(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
-  ## Fetch all available versions/tags.
+  ## Fetch latest 2 semver tags via git ls-remote (works for any host).
   try:
-    case repo.host
-    of vhGitHub: result = githubFetchVersions(client, repo)
-    of vhGitLab: result = gitlabFetchVersions(client, repo)
-    of vhCodeberg: result = codebergFetchVersions(client, repo)
-    of vhBitbucket: result = bitbucketFetchVersions(client, repo)
-    of vhSourceHut: result = sourcehutFetchVersions(repo)
-    of vhGenericGit: result = genericGitFetchVersions(repo)
+    result = genericGitFetchVersions(repo)
   except CatchableError as e:
     warn "VCS version fetch failed", host = $repo.host, path = repo.path, error = e.msg
     raise

@@ -281,7 +281,7 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
       discard
 
     var latestVersion = ""
-    if row[7].kind != sqliteNull:
+    if row[8].kind != sqliteNull:
       let headCommit = if row[11].kind == sqliteNull: "" else: row[11].strVal
       if headCommit.len > 0:
         latestVersion = "#head"
@@ -497,7 +497,7 @@ proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours
   let row = s.db.one("""
     SELECT v.updated_at FROM versions v
     JOIN packages p ON v.package_id = p.id
-    WHERE p.name = ? AND v.head_commit = '#head'
+    WHERE p.name = ? AND v.head_commit = '#head' AND v.updated_at IS NOT NULL
     ORDER BY v.updated_at DESC
     LIMIT 1
   """, pkgName.string)

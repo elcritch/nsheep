@@ -167,14 +167,15 @@ proc storePackage*(s: DbStorage, pkg: Package) =
   let tagsJson = "[" & pkg.tags.mapIt("\"" & it & "\"").join(",") & "]"
 
   s.db.exec("""
-    INSERT INTO packages (name, description, author, license, url, tags, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+    INSERT INTO packages (name, description, author, license, url, tags, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(name) DO UPDATE SET
       description = excluded.description,
       author = excluded.author,
       license = excluded.license,
       url = excluded.url,
-      tags = excluded.tags
+      tags = excluded.tags,
+      created_at = COALESCE(packages.created_at, unixepoch())
   """, pkg.name.string, pkg.description, pkg.author, pkg.license, pkg.url, tagsJson)
 
 proc touchPackage*(s: DbStorage, pkgName: PackageName) =
@@ -417,24 +418,24 @@ proc storeVersion*(
   if headCommit.len > 0:
     s.db.exec("""
       INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
       ON CONFLICT DO UPDATE SET
         tarball_path = excluded.tarball_path,
         tarball_size = excluded.tarball_size,
         checksum = excluded.checksum,
         published_at = excluded.published_at,
-        updated_at = strftime('%s', 'now')
+        updated_at = unixepoch()
     """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum, publishedAt.toTime.toUnix)
   else:
     s.db.exec("""
       INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
       ON CONFLICT DO UPDATE SET
         tarball_path = excluded.tarball_path,
         tarball_size = excluded.tarball_size,
         checksum = excluded.checksum,
         published_at = excluded.published_at,
-        updated_at = strftime('%s', 'now')
+        updated_at = unixepoch()
     """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, nil, tarPath, tarball.len.int64, $checksum, publishedAt.toTime.toUnix)
 
 proc loadTarball*(
@@ -537,7 +538,7 @@ proc storeValidationResult*(
   ## Store validation result
   s.db.exec("""
     INSERT INTO validation_results (package_name, version, success, output, duration_ms, tested_at)
-    VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
+    VALUES (?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(package_name, version) DO UPDATE SET
       success = excluded.success,
       output = excluded.output,
@@ -774,7 +775,7 @@ proc storeReadme*(s: DbStorage, pkgName: string, version: string, content: strin
   ## Store or update a README for a specific package version
   s.db.exec("""
     INSERT INTO readmes (package_name, version, content, fetched_at)
-    VALUES (?, ?, ?, strftime('%s', 'now'))
+    VALUES (?, ?, ?, unixepoch())
     ON CONFLICT(package_name, version) DO UPDATE SET
       content = excluded.content,
       fetched_at = unixepoch()

@@ -120,7 +120,11 @@ proc ingest*(
       continue
 
     # Download tarball
-    let tarballBytes = downloadTarball(client, repo, rel)
+    var tarballBytes = downloadTarball(client, repo, rel)
+
+    # Trim to subdir for monorepo packages
+    if repo.subdir.len > 0:
+      tarballBytes = trimTarballToSubdir(tarballBytes, repo, pkgName, rel.tag)
 
     # Compute checksum
     # TODO: use std/sha256
@@ -159,7 +163,12 @@ proc ingest*(
       if storedSha.len > 0:
         info "Head version changed", repo = repo.path, oldSha = storedSha, newSha = headSha
         deleteHeadVersions(store, pkgName)
-      let tarballBytes = downloadTarball(client, repo, rel)
+      var tarballBytes = downloadTarball(client, repo, rel)
+
+      # Trim to subdir for monorepo packages
+      if repo.subdir.len > 0:
+        tarballBytes = trimTarballToSubdir(tarballBytes, repo, pkgName, rel.tag)
+
       let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
       storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, headSha)
       versions.add(PackageVersion(

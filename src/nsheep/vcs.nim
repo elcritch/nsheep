@@ -667,6 +667,79 @@ proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   else:
     raise newException(VcsError, "cannot read tarball: " & tarPath)
 
+proc trimTarballToSubdir*(tarballBytes: seq[byte], repo: RepoRef, pkgName: PackageName, tag: string): seq[byte] =
+  ## For subdir packages, extract a full-repo tarball and re-archive only
+  ## the subdir contents under a top-level directory named {pkgName}-{tag}/.
+  ## Returns original bytes if repo.subdir is empty.
+  if repo.subdir.len == 0:
+    return tarballBytes
+
+  let tempDir = createTempDir("nsheep", "trim")
+  defer: removeDir(tempDir)
+
+  # Write source tarball to disk
+  let srcPath = tempDir / "source.tar.gz"
+  var f: File
+  if open(f, srcPath, fmWrite):
+    defer: close(f)
+    if tarballBytes.len > 0:
+      discard f.writeBuffer(unsafeAddr tarballBytes[0], tarballBytes.len)
+  else:
+    raise newException(VcsError, "cannot write tarball: " & srcPath)
+
+  # Extract
+  let extractDir = tempDir / "extracted"
+  createDir(extractDir)
+  let extractCmd = "tar -C " & extractDir.quoteShell & " -xzf " & srcPath.quoteShell & " 2>&1"
+  let (extractOut, extractExit) = execCmdEx(extractCmd)
+  if extractExit != 0:
+    raise newException(VcsError, "tar extract failed: " & extractOut)
+
+  # Find single top-level directory
+  var topDir = ""
+  for kind, path in walkDir(extractDir):
+    if kind == pcDir:
+      if topDir.len > 0:
+        raise newException(VcsError, "tarball has multiple top-level directories")
+      topDir = path.extractFilename
+
+  if topDir.len == 0:
+    raise newException(VcsError, "no top-level directory in tarball")
+
+  # Verify subdir exists inside top-level dir
+  let srcSubdir = extractDir / topDir / repo.subdir
+  if not dirExists(srcSubdir):
+    raise newException(VcsError, "subdir not found in tarball: " & repo.subdir)
+
+  # Create new top-level directory with desired name
+  let tarName = if tag == "#head": $pkgName & "-head" else: $pkgName & "-" & tag
+  let workDir = tempDir / "work"
+  let destDir = workDir / tarName
+  createDir(destDir)
+
+  # Copy subdir contents using tar (preserves hidden files, symlinks, etc.)
+  let copyCmd = "tar -C " & srcSubdir.quoteShell & " -cf - . | tar -C " & destDir.quoteShell & " -xf - 2>&1"
+  let (copyOut, copyExit) = execCmdEx(copyCmd)
+  if copyExit != 0:
+    raise newException(VcsError, "tar copy failed: " & copyOut)
+
+  # Create trimmed tarball
+  let tarPath = tempDir / "trimmed.tar.gz"
+  let tarCmd = "tar -C " & workDir.quoteShell & " -czf " & tarPath.quoteShell & " " & tarName.quoteShell & " 2>&1"
+  let (tarOut, tarExit) = execCmdEx(tarCmd)
+  if tarExit != 0:
+    raise newException(VcsError, "tar create failed: " & tarOut)
+
+  # Read trimmed tarball bytes
+  let fileSize = getFileSize(tarPath)
+  result = newSeq[byte](fileSize)
+  if open(f, tarPath, fmRead):
+    defer: close(f)
+    if fileSize > 0:
+      discard f.readBuffer(addr result[0], fileSize)
+  else:
+    raise newException(VcsError, "cannot read trimmed tarball: " & tarPath)
+
 proc genericGitFetchFile*(repo: RepoRef, tag, filename: string): Option[string] =
   ## Fetch a single file via shallow clone + read.
   let tempDir = createTempDir("nsheep", "gitfile")

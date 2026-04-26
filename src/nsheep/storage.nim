@@ -105,42 +105,14 @@ type
 
 # --- Initialization ---
 
-proc migrateTimestamps(db: DbConn) =
-  ## Migrate existing TEXT timestamps to INTEGER Unix timestamps
-  db.exec("""
-    UPDATE packages SET created_at = CAST(strftime('%s', created_at) AS INTEGER)
-    WHERE typeof(created_at) = 'text' AND created_at IS NOT NULL;
-  """)
-  db.exec("""
-    UPDATE packages SET updated_at = CAST(strftime('%s', updated_at) AS INTEGER)
-    WHERE typeof(updated_at) = 'text' AND updated_at IS NOT NULL;
-  """)
-  db.exec("""
-    UPDATE versions SET created_at = CAST(strftime('%s', created_at) AS INTEGER)
-    WHERE typeof(created_at) = 'text' AND created_at IS NOT NULL;
-  """)
-  db.exec("""
-    UPDATE versions SET updated_at = CAST(strftime('%s', updated_at) AS INTEGER)
-    WHERE typeof(updated_at) = 'text' AND updated_at IS NOT NULL;
-  """)
-  db.exec("""
-    UPDATE versions SET published_at = CAST(strftime('%s', published_at) AS INTEGER)
-    WHERE typeof(published_at) = 'text' AND published_at IS NOT NULL;
-  """)
-  db.exec("""
-    UPDATE validation_results SET tested_at = CAST(strftime('%s', tested_at) AS INTEGER)
-    WHERE typeof(tested_at) = 'text' AND tested_at IS NOT NULL;
-  """)
-  db.exec("""
-    UPDATE readmes SET fetched_at = CAST(strftime('%s', fetched_at) AS INTEGER)
-    WHERE typeof(fetched_at) = 'text' AND fetched_at IS NOT NULL;
-  """)
-
 proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   ## Initialize SQLite storage + filesystem tarball storage
   result.dbPath = dbPath
   result.tarballDir = tarballDir
   result.db = openDatabase(dbPath)
+
+  # Wait up to 10s when the database is locked by another connection
+  result.db.exec("PRAGMA busy_timeout = 10000")
 
   # Create tables
   result.db.execScript(Schema)
@@ -154,9 +126,6 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
     result.db.exec("ALTER TABLE versions ADD COLUMN updated_at INTEGER DEFAULT (unixepoch())")
   except:
     discard
-
-  # Migration: convert TEXT timestamps to INTEGER Unix timestamps
-  migrateTimestamps(result.db)
 
   # Create tarball directory
   createDir(tarballDir)

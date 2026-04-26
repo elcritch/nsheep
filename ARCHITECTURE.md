@@ -1,6 +1,6 @@
-# NSheep Architecture
+# NimPack Architecture
 
-This document describes the technical architecture and design decisions behind NSheep.
+This document describes the technical architecture and design decisions behind NimPack.
 
 ## Design Goals
 
@@ -119,13 +119,13 @@ data/
 User: nimble install jester
        │
        ▼
-Nimble: GET nsheep.example.com/packages.json
+Nimble: GET nimpack.org/packages.json
         │
         ▼
-Nimble: GET nsheep.example.com/download/jester/0.6.0
+Nimble: GET nimpack.org/download/jester/0.6.0
         │
         ▼
-NSheep: 1. Look up version in SQLite
+NimPack: 1. Look up version in SQLite
         2. Read tarball from filesystem
         3. Return with immutable cache headers
 ```

@@ -677,7 +677,7 @@ proc copyInstallCommand(cmd: string) =
   , 1500)
 
 proc loadTheme() =
-  let storedItem = localstorage.getItem(cstring"nsheep-theme")
+  let storedItem = localstorage.getItem(cstring"nimpack-theme")
   let stored = if storedItem != nil: $storedItem else: ""
   if stored == "dark":
     darkMode = true
@@ -695,7 +695,7 @@ proc loadTheme() =
 proc toggleDarkMode() =
   darkMode = not darkMode
   let theme = if darkMode: cstring"dark" else: cstring"light"
-  localstorage.setItem(cstring"nsheep-theme", theme)
+  localstorage.setItem(cstring"nimpack-theme", theme)
   kdom.document.documentElement.setAttribute("data-theme", theme)
   redraw()
 
@@ -804,11 +804,11 @@ proc renderHelp(): VNode =
   buildHtml(tdiv(class = "page help-page")):
     a(href = "/", class = "back-link"): text "← All packages"
     tdiv(class = "help-content"):
-      h1: text "Using NSheep with Nimble"
+      h1: text "Using NimPack with Nimble"
       p:
-        text "NSheep exposes a nimble-compatible package list at "
+        text "NimPack exposes a nimble-compatible package list at "
         code: text "/packages.json"
-        text ". Point your nimble client at this server to install packages directly from the registry."
+        text ". Point your nimble client at this server to install packages directly from NimPack."
 
       h2: text "1. Configure Nimble"
       p:
@@ -820,32 +820,32 @@ proc renderHelp(): VNode =
 
       pre:
         code(class = "language-ini"): text """[PackageList]
-name = "nsheep"
-url = "http://localhost:8080/packages.json""""
+name = "nimpack"
+url = "https://nimpack.org/packages.json""""
 
       p:
         text "Replace "
-        code: text "http://localhost:8080"
-        text " with the actual URL of your NSheep instance. You can add multiple "
+        code: text "https://nimpack.org"
+        text " with the actual URL of your NimPack instance. You can add multiple "
         code: text "url"
         text " lines if the server is reachable from different addresses."
 
       h2: text "2. Install Packages"
       p:
-        text "Once configured, install packages as usual. Nimble will discover them through the NSheep registry:"
+        text "Once configured, install packages as usual. Nimble will discover them through NimPack:"
 
       pre:
         code(class = "language-bash"): text "nimble install karax"
 
       p:
-        text "NSheep serves pre-built tarballs, so installs are fast and do not depend on GitHub availability."
+        text "NimPack serves pre-built tarballs, so installs are fast and do not depend on GitHub availability."
 
       h2: text "3. Verify the Endpoint"
       p:
         text "You can inspect the raw package list at any time:"
 
       pre:
-        code(class = "language-bash"): text "curl http://localhost:8080/packages.json | head -n 20"
+        code(class = "language-bash"): text "curl https://nimpack.org/packages.json | head -n 20"
 
       h2: text "4. Package List Format"
       p:
@@ -859,7 +859,7 @@ url = "http://localhost:8080/packages.json""""
 
       h2: text "Tips"
       ul:
-        li: text "Nimble merges package lists, so you can keep the official list alongside NSheep if desired."
+        li: text "Nimble merges package lists, so you can keep the official list alongside NimPack if desired."
         li: text "Set a GitHub token in cfg.yaml to increase rate limits for the background fetcher."
         li: text "Use the download endpoint directly to fetch specific versions without nimble."
 
@@ -995,7 +995,7 @@ proc render(): VNode =
   buildHtml(tdiv(class = "app")):
     header(class = "site-header"):
       tdiv(class = "header-inner"):
-        a(href = "/", class = "logo"): text "NSheep"
+        a(href = "/", class = "logo"): text "NimPack"
         nav(class = "header-nav"):
           a(href = "/stats", class = "nav-link"): text "Stats"
           a(href = "/help", class = "nav-link"): text "Help"

@@ -1,4 +1,4 @@
-# NSheep Deployment Guide
+# NimPack Deployment Guide
 
 ## Architecture Options
 
@@ -55,12 +55,12 @@ tunnel: 2c5e8c8e-1234-5678-9abc-def012345678
 credentials-file: /root/.cloudflared/2c5e8c8e-1234-5678-9abc-def012345678.json
 
 ingress:
-  - hostname: nsheep.yourdomain.com
+  - hostname: nimpack.example.com
     service: http://localhost:8080
   - service: http_status:404
 ```
 
-### 4. Run NSheep + Tunnel
+### 4. Run NimPack + Tunnel
 
 Create `docker-compose.yml`:
 
@@ -92,7 +92,7 @@ Or use systemd services:
 ```ini
 # /etc/systemd/system/nsheep.service
 [Unit]
-Description=NSheep Package Registry
+Description=NimPack Package Registry
 After=network.target
 
 [Service]
@@ -109,7 +109,7 @@ WantedBy=multi-user.target
 ```ini
 # /etc/systemd/system/nsheep-tunnel.service
 [Unit]
-Description=Cloudflare Tunnel for NSheep
+Description=Cloudflare Tunnel for NimPack
 After=network.target nsheep.service
 
 [Service]
@@ -141,10 +141,10 @@ Recommended:
 ### 2. Configure DNS
 
 In Cloudflare Dashboard:
-1. Add A record: `nsheep.yourdomain.com` → `YOUR_VPS_IP`
+1. Add A record: `nimpack.example.com` → `YOUR_VPS_IP`
 2. Enable orange cloud (Proxied)
 
-### 3. Deploy NSheep
+### 3. Deploy NimPack
 
 ```bash
 # On the VPS
@@ -187,7 +187,7 @@ EOF
 # /etc/nginx/sites-available/nsheep
 server {
     listen 80;
-    server_name nsheep.yourdomain.com;
+    server_name nimpack.example.com;
     
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -288,15 +288,15 @@ Pushing code to the `main` branch will automatically trigger deployment (per `.g
 
 ```bash
 # Health check
-curl https://nsheep.yourdomain.com/health
+curl https://nimpack.example.com/health
 
 # Test ingestion
-curl -X POST https://nsheep.yourdomain.com/api/v1/packages/ingest \
+curl -X POST https://nimpack.example.com/api/v1/packages/ingest \
   -H "Content-Type: application/json" \
   -d '{"url": "https://github.com/nim-lang/jsony"}'
 
 # View package list
-curl https://nsheep.yourdomain.com/api/v1/packages
+curl https://nimpack.example.com/api/v1/packages
 ```
 
 ---

@@ -205,6 +205,8 @@ proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
     result = parseJson(cached.get.body)
     return
 
+  if code == 404:
+    raise newException(VcsNotFoundError, "HTTP 404: " & body[0..<min(200, body.len)])
   if code >= 400:
     raise newException(VcsError, "HTTP " & $code & ": " & body[0..<min(200, body.len)])
 

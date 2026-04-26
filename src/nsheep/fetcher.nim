@@ -13,6 +13,11 @@ const
   MaxRetries = 3
 
 type
+  IngestResult* = enum
+    irSuccess
+    irFailed
+    irSkipped
+
   Fetcher* = ref object
     vcs*: VcsClient
     store*: DbStorage
@@ -63,58 +68,64 @@ proc fetchNimblePackages(): seq[NimblePkg] =
 
   result = @[]
   for pkg in json:
+    var name = ""
     try:
       if pkg.hasKey("alias"):
         continue
 
+      name = pkg["name"].getStr()
       let url = pkg["url"].getStr()
-      let name = pkg["name"].getStr()
       let tags = parseTags(pkg)
       let repoOpt = vcs.parseRepoUrl(url)
       if repoOpt.isSome:
         result.add(NimblePkg(repo: repoOpt.get(), name: name, tags: tags))
-    except:
-      continue
+    except KeyError as e:
+      warn "Skipping package with missing field", name = name, field = e.msg
+    except CatchableError as e:
+      warn "Skipping package due to error", name = name, error = e.msg
 
   info "Parsed packages", count = result.len
 
-proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): bool =
-  ## Ingest a single package with validation, return true on success
+proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
+  ## Ingest a single package with validation
 
   # Skip if processed since last fetcher cycle
   if packageProcessedRecently(fetcher.store, pkg.name, fetcher.fetcherConfig.interval):
     info "Skipping recently processed package", repo = pkg.repo.path
-    return true
+    return irSkipped
 
   # First validate if enabled and Docker is available
   if fetcher.validatorConfig.enabled:
     if not isDockerAvailable():
       warn "Docker not available, skipping validation", repo = pkg.repo.path
-    else:
-      info "Validating package", repo = pkg.repo.path
-      let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.repo.path, fetcher.validatorConfig)
+      return irSkipped
+    if validationDoneRecently(fetcher.store, pkg.name, fetcher.fetcherConfig.interval):
+      info "Skipping recently validated package", repo = pkg.repo.path
+      return irSkipped
+    info "Validating package", repo = pkg.repo.path
+    let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.repo.path, fetcher.validatorConfig)
 
-      if not validationResult.overallSuccess:
-        if fetcher.validatorConfig.required:
-          error "Validation failed, skipping ingest", repo = pkg.repo.path
-          return false
-        else:
-          warn "Validation failed but not required, continuing", repo = pkg.repo.path
+    if not validationResult.overallSuccess:
+      if fetcher.validatorConfig.required:
+        error "Validation failed, skipping ingest", repo = pkg.repo.path
+        return irFailed
       else:
-        info "Validation passed", repo = pkg.repo.path
+        warn "Validation failed but not required, continuing", repo = pkg.repo.path
+    else:
+      info "Validation passed", repo = pkg.repo.path
 
   # Then ingest
   for attempt in 1..MaxRetries:
     try:
       discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags)
-      return true
+      return irSuccess
     except CatchableError as e:
       warn "Ingest failed", repo = pkg.repo.path, attempt = attempt, error = e.msg
       if attempt < MaxRetries:
         sleep(1000 * attempt)
 
   error "Ingest failed permanently", repo = pkg.repo.path
-  return false
+  return irFailed
 
 proc shouldFetch(fetcher: Fetcher, pkg: NimblePkg): bool =
   if fetcher.fetcherConfig.filterPatterns.len == 0:
@@ -132,7 +143,7 @@ proc runOnce(fetcher: Fetcher) =
   let pkgs = fetchNimblePackages()
   var successCount = 0
   var failCount = 0
-  var skippedCount = 0
+  var skipCount = 0
   var processedCount = 0
 
   for pkg in pkgs:
@@ -140,17 +151,16 @@ proc runOnce(fetcher: Fetcher) =
       break
 
     if not fetcher.shouldFetch(pkg):
-      skippedCount.inc
       continue
 
     processedCount.inc
 
-    if ingestPackage(fetcher, pkg):
-      successCount.inc
-    else:
-      failCount.inc
+    case ingestPackage(fetcher, pkg):
+    of irSuccess: successCount.inc
+    of irFailed: failCount.inc
+    of irSkipped: skipCount.inc
 
-  info "Fetch cycle complete", success = successCount, failed = failCount, skipped = skippedCount,
+  info "Fetch cycle complete", success = successCount, failed = failCount, skipped = skipCount,
       total = processedCount
 
 proc fetcherLoop(fetcher: Fetcher) {.thread.} =

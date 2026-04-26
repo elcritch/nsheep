@@ -128,7 +128,8 @@ proc close*(s: DbStorage) =
 # --- Package Operations ---
 
 proc storePackage*(s: DbStorage, pkg: Package) =
-  ## Store or update a package
+  ## Store or update a package. Does NOT touch updated_at on conflict —
+  ## caller must call touchPackage() after successful ingest to bump the timestamp.
   let tagsJson = "[" & pkg.tags.mapIt("\"" & it & "\"").join(",") & "]"
 
   s.db.exec("""
@@ -139,9 +140,15 @@ proc storePackage*(s: DbStorage, pkg: Package) =
       author = excluded.author,
       license = excluded.license,
       url = excluded.url,
-      tags = excluded.tags,
-      updated_at = datetime('now')
+      tags = excluded.tags
   """, pkg.name.string, pkg.description, pkg.author, pkg.license, pkg.url, tagsJson)
+
+proc touchPackage*(s: DbStorage, pkgName: PackageName) =
+  ## Bump updated_at to mark a successful full ingest. Used by the fetcher
+  ## to distinguish "metadata stored but ingest crashed" from "fully processed".
+  s.db.exec("""
+    UPDATE packages SET updated_at = datetime('now') WHERE name = ?
+  """, pkgName.string)
 
 proc loadPackage*(s: DbStorage, name: PackageName): Package =
   ## Load package by name
@@ -469,7 +476,7 @@ proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours
 
 proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if the fetcher fully processed a package within the given seconds.
-  ## Uses updated_at since storePackage() touches it on every ingest.
+  ## Uses updated_at which is only bumped by touchPackage() on successful ingest.
   if withinSeconds <= 0:
     return false
   let row = s.db.one("""
@@ -533,6 +540,21 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
       success: row[1].intVal != 0,
       testedAt: parse(row[2].strVal, "yyyy-MM-dd HH:mm:ss")
     ))
+
+proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
+  ## Check if any validation result exists for this package within the given seconds.
+  if withinSeconds <= 0:
+    return false
+  let row = s.db.one("""
+    SELECT tested_at FROM validation_results
+    WHERE package_name = ?
+    ORDER BY tested_at DESC
+    LIMIT 1
+  """, pkgName)
+  if row.isNone:
+    return false
+  let testedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
+  result = (now() - testedAt).inSeconds < withinSeconds
 
 proc recordDownload*(s: DbStorage, pkgName: string, version: string) =
   ## Record a download for a package version

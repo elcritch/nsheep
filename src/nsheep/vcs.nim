@@ -65,6 +65,10 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
       let pathPart = input[colonIdx+1..^1]
       input = "https://" & hostPart & "/" & pathPart
 
+  # Upgrade http:// to https://
+  if input.startsWith("http://"):
+    input = "https://" & input[7..^1]
+
   if not input.startsWith("https://"):
     return none(RepoRef)
 

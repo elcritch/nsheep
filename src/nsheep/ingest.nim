@@ -200,6 +200,7 @@ proc ingest*(
       let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
       storeReadme(store, pkg.name.string, versionStr, readmeContent)
 
+  touchPackage(store, pkg.name)
   info "Ingestion complete", package = $pkg.name, versions = pkg.versions.len
   result = pkg
 

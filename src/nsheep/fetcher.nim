@@ -26,6 +26,13 @@ type
     running*: bool
     thread*: Thread[Fetcher]
 
+  Validator* = ref object
+    store*: DbStorage
+    config*: validator.ValidatorConfig
+    interval*: int
+    running*: bool
+    thread*: Thread[Validator]
+
   NimblePkg* = object
     ## Entry from nimble packages.json — carries the canonical name
     repo*: RepoRef
@@ -87,32 +94,12 @@ proc fetchNimblePackages(): seq[NimblePkg] =
   info "Parsed packages", count = result.len
 
 proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
-  ## Ingest a single package with validation
+  ## Ingest a single package
 
   # Skip if processed since last fetcher cycle
   if packageProcessedRecently(fetcher.store, pkg.name, fetcher.fetcherConfig.interval):
     info "Skipping recently processed package", repo = pkg.repo.path
     return irSkipped
-
-  # First validate if enabled and Docker is available
-  if fetcher.validatorConfig.enabled:
-    if not isDockerAvailable():
-      warn "Docker not available, skipping validation", repo = pkg.repo.path
-      return irSkipped
-    if validationDoneRecently(fetcher.store, pkg.name, fetcher.fetcherConfig.interval):
-      info "Skipping recently validated package", repo = pkg.repo.path
-      return irSkipped
-    info "Validating package", repo = pkg.repo.path
-    let validationResult = validatePackage(fetcher.store, pkg.repo.url, pkg.name, fetcher.validatorConfig)
-
-    if not validationResult.overallSuccess:
-      if fetcher.validatorConfig.required:
-        error "Validation failed, skipping ingest", repo = pkg.repo.path
-        return irFailed
-      else:
-        warn "Validation failed but not required, continuing", repo = pkg.repo.path
-    else:
-      info "Validation passed", repo = pkg.repo.path
 
   # Then ingest
   for attempt in 1..MaxRetries:
@@ -222,6 +209,62 @@ proc initFetcher*(
     running: false
   )
 
+# --- Validator thread ---
+
+proc validatorLoop(v: Validator) {.thread.} =
+  info "Validator thread started", interval = v.interval
+
+  while v.running:
+    if not v.config.enabled or not isDockerAvailable():
+      info "Validator disabled or Docker unavailable, sleeping"
+      var slept = 0
+      while v.running and slept < v.interval:
+        sleep(1000)
+        slept.inc
+      continue
+
+    try:
+      let pkgs = fetchNimblePackages()
+      for pkg in pkgs:
+        if not v.running:
+          break
+        if validationDoneRecently(v.store, pkg.name, v.interval):
+          continue
+        info "Validating package", repo = pkg.repo.path
+        let result = validatePackage(v.store, pkg.repo.url, pkg.name, v.config)
+        if result.overallSuccess:
+          info "Validation passed", repo = pkg.repo.path
+        else:
+          warn "Validation failed", repo = pkg.repo.path
+    except CatchableError as e:
+      error "Validator cycle error", error = e.msg
+
+    var slept = 0
+    while v.running and slept < v.interval:
+      sleep(1000)
+      slept.inc
+
+  info "Validator thread stopped"
+
+proc startValidator*(v: Validator) =
+  v.running = true
+  createThread(v.thread, validatorLoop, v)
+
+proc stopValidator*(v: Validator) =
+  v.running = false
+
+proc initValidator*(
+  store: DbStorage,
+  interval: int = DefaultFetchInterval,
+  config: validator.ValidatorConfig = validator.defaultValidatorConfig()
+): Validator =
+  result = Validator(
+    store: store,
+    interval: interval,
+    config: config,
+    running: false
+  )
+
 # --- Main entry point when run as standalone binary ---
 
 when isMainModule:
@@ -262,15 +305,28 @@ when isMainModule:
       "/tmp/nsheep/vcs-cache"
     )
 
-    # Create and run fetcher
+    # Create fetcher and validator with separate DB connections
     var f = initFetcher(vcsClient, store, cfg.fetcher, cfg.validator)
+    var v = initValidator(initStorage(cfg.local.dbPath, cfg.local.tarballDir), cfg.fetcher.interval, cfg.validator)
 
     info "Fetcher starting", interval = cfg.fetcher.interval, validation = cfg.validator.enabled
 
+    f.startFetcher()
+    if cfg.validator.enabled:
+      v.startValidator()
+
     try:
-      f.runFetcher()
+      # Block main thread, let background threads run
+      while f.running:
+        sleep(1000)
     except CatchableError as e:
       error "Fetcher error", error = e.msg
       quit(1)
+
+    f.stopFetcher()
+    v.stopValidator()
+
+    joinThread(f.thread)
+    joinThread(v.thread)
 
   main()

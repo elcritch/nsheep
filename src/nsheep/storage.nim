@@ -474,6 +474,25 @@ proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit:
     """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
   return row.isSome
 
+proc getHeadCommitSha*(s: DbStorage, pkgName: PackageName): string =
+  ## Return the stored HEAD commit SHA for a package, or empty string if none.
+  let row = s.db.one("""
+    SELECT v.head_commit FROM versions v
+    JOIN packages p ON v.package_id = p.id
+    WHERE p.name = ? AND v.major = 99999 AND v.minor = 99999 AND v.patch = 99999
+    LIMIT 1
+  """, pkgName.string)
+  if row.isSome and row.get()[0].kind != sqliteNull:
+    result = row.get()[0].strVal
+
+proc deleteHeadVersions*(s: DbStorage, pkgName: PackageName) =
+  ## Remove all HEAD versions for a package so a new HEAD can replace them.
+  s.db.exec("""
+    DELETE FROM versions WHERE package_id = (
+      SELECT id FROM packages WHERE name = ?
+    ) AND major = 99999 AND minor = 99999 AND patch = 99999
+  """, pkgName.string)
+
 proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if the fetcher fully processed a package within the given seconds.
   ## Uses updated_at which is only bumped by touchPackage() on successful ingest.

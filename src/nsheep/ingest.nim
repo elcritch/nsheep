@@ -150,20 +150,35 @@ proc ingest*(
   if headOpt.isSome:
     let rel = headOpt.get()
     let headSemVer = initSemVer(99999, 99999, 99999)
+    let headSha = rel.commitSha
 
-    if not versionExists(store, pkgName, headSemVer, "#head"):
-      let tarballBytes = downloadTarball(client, repo, rel)
-      let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
-      storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
+    let storedSha = getHeadCommitSha(store, pkgName)
+    if storedSha == headSha and headSha.len > 0:
+      info "Head version unchanged, skipping download", repo = repo.path, sha = headSha
       versions.add(PackageVersion(
         version: headSemVer,
-        headCommit: "#head",
+        headCommit: headSha,
+        tarballPath: "",
+        checksum: initChecksum("0" & repeat('0', 63)),
+        size: 0,
+        publishedAt: rel.publishedAt
+      ))
+    else:
+      if storedSha.len > 0:
+        info "Head version changed", repo = repo.path, oldSha = storedSha, newSha = headSha
+        deleteHeadVersions(store, pkgName)
+      let tarballBytes = downloadTarball(client, repo, rel)
+      let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+      storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, headSha)
+      versions.add(PackageVersion(
+        version: headSemVer,
+        headCommit: headSha,
         tarballPath: "",
         checksum: checksum,
         size: int64(tarballBytes.len),
         publishedAt: rel.publishedAt
       ))
-      info "Updated head version", repo = repo.path
+      info "Updated head version", repo = repo.path, sha = headSha
 
   info "Downloaded versions", count = versions.len
 

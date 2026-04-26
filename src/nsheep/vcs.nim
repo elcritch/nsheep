@@ -29,6 +29,7 @@ type
     tag*: string
     tarballUrl*: string
     publishedAt*: DateTime
+    commitSha*: string  ## Git commit SHA for this version (HEAD or tag)
 
   VcsError* = object of CatchableError
   VcsNotFoundError* = object of VcsError
@@ -470,7 +471,8 @@ proc githubFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInf
       try: parse(commit["commit"]["committer"]["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
     let tarballUrl = "https://api.github.com/repos/" & repo.path & "/tarball/HEAD"
-    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+    let sha = if commit.hasKey("sha"): commit["sha"].getStr() else: ""
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate, commitSha: sha))
   except CatchableError as e:
     warn "Failed to fetch HEAD for GitHub repo", repo = repo.path, error = e.msg
     result = none(VersionInfo)
@@ -489,7 +491,8 @@ proc gitlabFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInf
       else: now()
     let repoName = repo.path.split('/')[^1]
     let tarballUrl = repo.apiBase & "/" & repo.path & "/-/archive/HEAD/" & repoName & "-HEAD.tar.gz"
-    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+    let sha = if commit.hasKey("id"): commit["id"].getStr() else: ""
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate, commitSha: sha))
   except CatchableError as e:
     warn "Failed to fetch HEAD for GitLab repo", repo = repo.path, error = e.msg
     result = none(VersionInfo)
@@ -508,7 +511,8 @@ proc codebergFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionI
       try: parse(commit["commit"]["committer"]["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
     let tarballUrl = "https://codeberg.org/" & repo.path & "/archive/main.tar.gz"
-    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+    let sha = if commit.hasKey("sha"): commit["sha"].getStr() else: ""
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate, commitSha: sha))
   except CatchableError as e:
     warn "Failed to fetch HEAD for Codeberg repo", repo = repo.path, error = e.msg
     result = none(VersionInfo)
@@ -526,7 +530,8 @@ proc bitbucketFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[Version
       try: parse(commit["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
     let tarballUrl = "https://bitbucket.org/" & repo.path & "/get/HEAD.tar.gz"
-    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate))
+    let sha = if commit.hasKey("hash"): commit["hash"].getStr() else: ""
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate, commitSha: sha))
   except CatchableError as e:
     warn "Failed to fetch HEAD for Bitbucket repo", repo = repo.path, error = e.msg
     result = none(VersionInfo)
@@ -540,7 +545,8 @@ proc genericGitFetchHeadVersion(repo: RepoRef): Option[VersionInfo] =
   let parts = output.strip().split('\t')
   if parts.len < 2:
     return none(VersionInfo)
-  result = some(VersionInfo(tag: "#head", tarballUrl: "", publishedAt: now()))
+  let sha = parts[0].strip()
+  result = some(VersionInfo(tag: "#head", tarballUrl: "", publishedAt: now(), commitSha: sha))
 
 # --- Generic Git Fallback ---
 

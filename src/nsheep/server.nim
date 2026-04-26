@@ -127,7 +127,7 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
         "version": versionStr(v),
         "size": v.size,
         "checksum": $v.checksum,
-        "publishedAt": $v.publishedAt
+        "publishedAt": v.publishedAt.toTime.toUnix
       })
 
     let body = %*{
@@ -138,7 +138,7 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
       "url": pkg.url,
       "tags": pkg.tags,
       "versions": versionsJson,
-      "updatedAt": $pkg.updatedAt
+      "updatedAt": pkg.updatedAt.toTime.toUnix
     }
 
     sendJson(request, body, cacheSeconds = 3600) # 1 hour cache
@@ -230,7 +230,7 @@ proc handleValidations(state: ptr ServerState): RequestHandler =
       arr.add(%*{
         "version": r.version,
         "success": r.success,
-        "testedAt": $r.testedAt
+        "testedAt": r.testedAt.toTime.toUnix
       })
 
     sendJson(request, arr, cacheSeconds = 300)

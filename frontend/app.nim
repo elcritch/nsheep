@@ -15,21 +15,21 @@ type
     description: string
     author: string
     latestVersion: string
-    createdAt: string
-    updatedAt: string
-    latestVersionPublishedAt: string
+    createdAt: int
+    updatedAt: int
+    latestVersionPublishedAt: int
     tags: seq[string]
 
   VersionInfo = object
     version: string
     size: int
     checksum: string
-    publishedAt: string
+    publishedAt: int
 
   ValidationResult = object
     version: string
     success: bool
-    testedAt: string
+    testedAt: int
 
   PackageDetail = object
     name: string
@@ -249,10 +249,10 @@ proc fetchSummaries(page: int = 1) =
           description: if item.hasField("description"): $item["description"].getStr() else: "",
           author: if item.hasField("author"): $item["author"].getStr() else: "",
           latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
-          createdAt: if item.hasField("createdAt"): $item["createdAt"].getStr() else: "",
-          updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
-          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item[
-              "latestVersionPublishedAt"].getStr() else: "",
+          createdAt: if item.hasField("createdAt"): item["createdAt"].getInt() else: 0,
+          updatedAt: if item.hasField("updatedAt"): item["updatedAt"].getInt() else: 0,
+          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): item[
+              "latestVersionPublishedAt"].getInt() else: 0,
           tags: if item.hasField("tags"):
               (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
             else: @[]
@@ -286,10 +286,10 @@ proc fetchSearchSuggestions(q: string) =
           description: if item.hasField("description"): $item["description"].getStr() else: "",
           author: if item.hasField("author"): $item["author"].getStr() else: "",
           latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
-          createdAt: if item.hasField("createdAt"): $item["createdAt"].getStr() else: "",
-          updatedAt: if item.hasField("updatedAt"): $item["updatedAt"].getStr() else: "",
-          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): $item[
-              "latestVersionPublishedAt"].getStr() else: "",
+          createdAt: if item.hasField("createdAt"): item["createdAt"].getInt() else: 0,
+          updatedAt: if item.hasField("updatedAt"): item["updatedAt"].getInt() else: 0,
+          latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): item[
+              "latestVersionPublishedAt"].getInt() else: 0,
           tags: if item.hasField("tags"):
               (var ts: seq[string] = @[]; for t in item["tags"]: ts.add($t.getStr()); ts)
             else: @[]
@@ -307,7 +307,7 @@ proc fetchValidations(name: string) =
       validations.add(ValidationResult(
         version: $item["version"].getStr(),
         success: item["success"].getBool(),
-        testedAt: $item["testedAt"].getStr()
+        testedAt: item["testedAt"].getInt()
       ))
     redraw()
 
@@ -400,7 +400,7 @@ proc fetchDetail(name: string) =
           version: $v["version"].getStr(),
           size: v["size"].getInt(),
           checksum: $v["checksum"].getStr(),
-          publishedAt: $v["publishedAt"].getStr()
+          publishedAt: v["publishedAt"].getInt()
         ))
     var tags: seq[string] = @[]
     if data.hasField("tags"):
@@ -428,24 +428,10 @@ proc sortFiltered() =
   case currentSort
   of soPublishedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      if a.createdAt == "" and b.createdAt == "":
-        0
-      elif a.createdAt == "":
-        1
-      elif b.createdAt == "":
-        -1
-      else:
-        cmp(b.createdAt, a.createdAt)
+      cmp(b.createdAt, a.createdAt)
   of soUpdatedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      if a.updatedAt == "" and b.updatedAt == "":
-        0
-      elif a.updatedAt == "":
-        1
-      elif b.updatedAt == "":
-        -1
-      else:
-        cmp(b.updatedAt, a.updatedAt)
+      cmp(b.updatedAt, a.updatedAt)
 
 proc applyFilters() =
   filtered = summaries
@@ -669,6 +655,13 @@ proc formatSize(bytes: int): string =
     result = $(bytes div 1024) & " KB"
   else:
     result = $(bytes div (1024 * 1024)) & " MB"
+
+proc jsDate(ts: float): JsObject {.importjs: "new Date(#)".}
+proc toLocaleString(d: JsObject): cstring {.importjs: "#.toLocaleString()".}
+
+proc formatTimestamp(ts: int): string =
+  if ts <= 0: return ""
+  result = $toLocaleString(jsDate(float(ts * 1000)))
 
 proc copyInstallCommand(cmd: string) =
   let w = cast[JsObject](kdom.window)

@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS packages (
     license TEXT,
     url TEXT NOT NULL,
     tags TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
 );
 
 -- Versions table (metadata only, no tarball blob)
@@ -41,9 +41,9 @@ CREATE TABLE IF NOT EXISTS versions (
     tarball_path TEXT NOT NULL,  -- Path to tarball file
     tarball_size INTEGER NOT NULL,
     checksum TEXT NOT NULL,
-    published_at TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    published_at INTEGER,
+    created_at INTEGER DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER DEFAULT (strftime('%s', 'now')),
     FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
     UNIQUE(package_id, major, minor, patch, head_commit)
 );
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS validation_results (
     success INTEGER NOT NULL,
     output TEXT,
     duration_ms INTEGER,
-    tested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    tested_at INTEGER DEFAULT (strftime('%s', 'now')),
     UNIQUE(package_name, version)
 );
 
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS readmes (
     package_name TEXT NOT NULL,
     version TEXT NOT NULL,
     content TEXT NOT NULL,
-    fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    fetched_at INTEGER DEFAULT (strftime('%s', 'now')),
     UNIQUE(package_name, version)
 );
 
@@ -97,6 +97,37 @@ type
 
 # --- Initialization ---
 
+proc migrateTimestamps(db: DbConn) =
+  ## Migrate existing TEXT timestamps to INTEGER Unix timestamps
+  db.exec("""
+    UPDATE packages SET created_at = CAST(strftime('%s', created_at) AS INTEGER)
+    WHERE typeof(created_at) = 'text' AND created_at IS NOT NULL;
+  """)
+  db.exec("""
+    UPDATE packages SET updated_at = CAST(strftime('%s', updated_at) AS INTEGER)
+    WHERE typeof(updated_at) = 'text' AND updated_at IS NOT NULL;
+  """)
+  db.exec("""
+    UPDATE versions SET created_at = CAST(strftime('%s', created_at) AS INTEGER)
+    WHERE typeof(created_at) = 'text' AND created_at IS NOT NULL;
+  """)
+  db.exec("""
+    UPDATE versions SET updated_at = CAST(strftime('%s', updated_at) AS INTEGER)
+    WHERE typeof(updated_at) = 'text' AND updated_at IS NOT NULL;
+  """)
+  db.exec("""
+    UPDATE versions SET published_at = CAST(strftime('%s', published_at) AS INTEGER)
+    WHERE typeof(published_at) = 'text' AND published_at IS NOT NULL;
+  """)
+  db.exec("""
+    UPDATE validation_results SET tested_at = CAST(strftime('%s', tested_at) AS INTEGER)
+    WHERE typeof(tested_at) = 'text' AND tested_at IS NOT NULL;
+  """)
+  db.exec("""
+    UPDATE readmes SET fetched_at = CAST(strftime('%s', fetched_at) AS INTEGER)
+    WHERE typeof(fetched_at) = 'text' AND fetched_at IS NOT NULL;
+  """)
+
 proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   ## Initialize SQLite storage + filesystem tarball storage
   result.dbPath = dbPath
@@ -112,9 +143,12 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   except:
     discard
   try:
-    result.db.exec("ALTER TABLE versions ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP")
+    result.db.exec("ALTER TABLE versions ADD COLUMN updated_at INTEGER DEFAULT (strftime('%s', 'now'))")
   except:
     discard
+
+  # Migration: convert TEXT timestamps to INTEGER Unix timestamps
+  migrateTimestamps(result.db)
 
   # Create tarball directory
   createDir(tarballDir)
@@ -134,7 +168,7 @@ proc storePackage*(s: DbStorage, pkg: Package) =
 
   s.db.exec("""
     INSERT INTO packages (name, description, author, license, url, tags, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
     ON CONFLICT(name) DO UPDATE SET
       description = excluded.description,
       author = excluded.author,
@@ -147,7 +181,7 @@ proc touchPackage*(s: DbStorage, pkgName: PackageName) =
   ## Bump updated_at to mark a successful full ingest. Used by the fetcher
   ## to distinguish "metadata stored but ingest crashed" from "fully processed".
   s.db.exec("""
-    UPDATE packages SET updated_at = datetime('now') WHERE name = ?
+    UPDATE packages SET updated_at = strftime('%s', 'now') WHERE name = ?
   """, pkgName.string)
 
 proc loadPackage*(s: DbStorage, name: PackageName): Package =
@@ -176,11 +210,11 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
 
   # Parse timestamps
   try:
-    result.createdAt = parse(r[6].strVal, "yyyy-MM-dd HH:mm:ss")
+    result.createdAt = fromUnix(r[6].intVal).local()
   except:
     result.createdAt = now()
   try:
-    result.updatedAt = parse(r[7].strVal, "yyyy-MM-dd HH:mm:ss")
+    result.updatedAt = fromUnix(r[7].intVal).local()
   except:
     result.updatedAt = now()
 
@@ -194,7 +228,7 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     let ver = initSemVer(vrow[0].intVal.int, vrow[1].intVal.int, vrow[2].intVal.int)
     let headCommit = if vrow[3].kind == sqliteNull: "" else: vrow[3].strVal
     let checksum = initChecksum(vrow[6].strVal)
-    let publishedAt = try: parse(vrow[7].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
+    let publishedAt = try: fromUnix(vrow[7].intVal).local() except: now()
     result.versions.add(PackageVersion(
       version: ver,
       headCommit: headCommit,
@@ -220,9 +254,9 @@ type
     url*: string
     tags*: seq[string]
     latestVersion*: string
-    createdAt*: string
-    updatedAt*: string
-    latestVersionPublishedAt*: string
+    createdAt*: int64
+    updatedAt*: int64
+    latestVersionPublishedAt*: int64
 
 proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
   ## List all packages with metadata and latest version
@@ -262,9 +296,9 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
       url: row[4].strVal,
       tags: tags,
       latestVersion: latestVersion,
-      createdAt: row[6].strVal,
-      updatedAt: row[7].strVal,
-      latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].strVal else: ""
+      createdAt: if row[6].kind != sqliteNull: row[6].intVal else: 0,
+      updatedAt: if row[7].kind != sqliteNull: row[7].intVal else: 0,
+      latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].intVal else: 0
     ))
 
 proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
@@ -320,9 +354,9 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
       url: row[4].strVal,
       tags: tags,
       latestVersion: latestVersion,
-      createdAt: row[6].strVal,
-      updatedAt: row[7].strVal,
-      latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].strVal else: ""
+      createdAt: if row[6].kind != sqliteNull: row[6].intVal else: 0,
+      updatedAt: if row[7].kind != sqliteNull: row[7].intVal else: 0,
+      latestVersionPublishedAt: if row[12].kind != sqliteNull: row[12].intVal else: 0
     ))
 
 proc countPackages*(s: DbStorage, search: string = "",
@@ -383,25 +417,25 @@ proc storeVersion*(
   if headCommit.len > 0:
     s.db.exec("""
       INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
       ON CONFLICT DO UPDATE SET
         tarball_path = excluded.tarball_path,
         tarball_size = excluded.tarball_size,
         checksum = excluded.checksum,
         published_at = excluded.published_at,
-        updated_at = datetime('now')
-    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum, $publishedAt)
+        updated_at = strftime('%s', 'now')
+    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum, publishedAt.toTime.toUnix)
   else:
     s.db.exec("""
       INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
       ON CONFLICT DO UPDATE SET
         tarball_path = excluded.tarball_path,
         tarball_size = excluded.tarball_size,
         checksum = excluded.checksum,
         published_at = excluded.published_at,
-        updated_at = datetime('now')
-    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, nil, tarPath, tarball.len.int64, $checksum, $publishedAt)
+        updated_at = strftime('%s', 'now')
+    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, nil, tarPath, tarball.len.int64, $checksum, publishedAt.toTime.toUnix)
 
 proc loadTarball*(
   s: DbStorage,
@@ -471,8 +505,8 @@ proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours
   if row.isNone:
     return false
 
-  let updatedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
-  result = (now() - updatedAt).inHours < withinHours
+  let updatedAt = row.get()[0].intVal
+  result = (getTime().toUnix - updatedAt) < withinHours.int64 * 3600
 
 proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if the fetcher fully processed a package within the given seconds.
@@ -487,8 +521,8 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
   if row.isNone:
     return false
 
-  let updatedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
-  result = (now() - updatedAt).inSeconds < withinSeconds
+  let updatedAt = row.get()[0].intVal
+  result = (getTime().toUnix - updatedAt) < withinSeconds.int64
 
 # --- Validation Result Operations ---
 
@@ -503,12 +537,12 @@ proc storeValidationResult*(
   ## Store validation result
   s.db.exec("""
     INSERT INTO validation_results (package_name, version, success, output, duration_ms, tested_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
     ON CONFLICT(package_name, version) DO UPDATE SET
       success = excluded.success,
       output = excluded.output,
       duration_ms = excluded.duration_ms,
-      tested_at = datetime('now')
+      tested_at = strftime('%s', 'now')
   """, pkgName, version, success.int64, output, durationMs.int64)
 
 proc getValidationResult*(s: DbStorage, pkgName, version: string): Option[tuple[success: bool, output: string,
@@ -538,7 +572,7 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
     result.add((
       version: row[0].strVal,
       success: row[1].intVal != 0,
-      testedAt: parse(row[2].strVal, "yyyy-MM-dd HH:mm:ss")
+      testedAt: fromUnix(row[2].intVal).local()
     ))
 
 proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
@@ -553,8 +587,8 @@ proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int):
   """, pkgName)
   if row.isNone:
     return false
-  let testedAt = try: parse(row.get()[0].strVal, "yyyy-MM-dd HH:mm:ss") except: now()
-  result = (now() - testedAt).inSeconds < withinSeconds
+  let testedAt = row.get()[0].intVal
+  result = (getTime().toUnix - testedAt) < withinSeconds.int64
 
 proc recordDownload*(s: DbStorage, pkgName: string, version: string) =
   ## Record a download for a package version
@@ -601,7 +635,7 @@ type
     name*: string
     description*: string
     author*: string
-    createdAt*: string
+    createdAt*: int64
 
   TopAuthor* = object
     name*: string
@@ -656,7 +690,7 @@ proc getRecentPackages*(s: DbStorage, limit: int = 10): seq[RecentPackage] =
       name: row[0].strVal,
       description: if row[1].kind == sqliteNull: "" else: row[1].strVal,
       author: if row[2].kind == sqliteNull: "" else: row[2].strVal,
-      createdAt: if row[3].kind == sqliteNull: "" else: row[3].strVal
+      createdAt: if row[3].kind == sqliteNull: 0 else: row[3].intVal
     ))
 
 proc getTopAuthors*(s: DbStorage, limit: int = 10): seq[TopAuthor] =
@@ -740,10 +774,10 @@ proc storeReadme*(s: DbStorage, pkgName: string, version: string, content: strin
   ## Store or update a README for a specific package version
   s.db.exec("""
     INSERT INTO readmes (package_name, version, content, fetched_at)
-    VALUES (?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, strftime('%s', 'now'))
     ON CONFLICT(package_name, version) DO UPDATE SET
       content = excluded.content,
-      fetched_at = datetime('now')
+      fetched_at = strftime('%s', 'now')
   """, pkgName, version, content)
 
 proc loadReadme*(s: DbStorage, pkgName: string, version: string): string =

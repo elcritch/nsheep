@@ -505,7 +505,7 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
   # were once successfully ingested long ago.
   let failedRow = s.db.one("""
     SELECT CAST(failed_at AS INTEGER) FROM failed_packages
-    WHERE name = ?
+    WHERE name = ? AND failed_at IS NOT NULL
   """, pkgName)
 
   if failedRow.isSome:

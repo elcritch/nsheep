@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS packages (
     license TEXT,
     url TEXT NOT NULL,
     tags TEXT,
-    created_at INTEGER DEFAULT (strftime('%s', 'now')),
-    updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch())
 );
 
 -- Versions table (metadata only, no tarball blob)
@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS versions (
     tarball_size INTEGER NOT NULL,
     checksum TEXT NOT NULL,
     published_at INTEGER,
-    created_at INTEGER DEFAULT (strftime('%s', 'now')),
-    updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch()),
     FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
     UNIQUE(package_id, major, minor, patch, head_commit)
 );
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS validation_results (
     success INTEGER NOT NULL,
     output TEXT,
     duration_ms INTEGER,
-    tested_at INTEGER DEFAULT (strftime('%s', 'now')),
+    tested_at INTEGER DEFAULT (unixepoch()),
     UNIQUE(package_name, version)
 );
 
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS readmes (
     package_name TEXT NOT NULL,
     version TEXT NOT NULL,
     content TEXT NOT NULL,
-    fetched_at INTEGER DEFAULT (strftime('%s', 'now')),
+    fetched_at INTEGER DEFAULT (unixepoch()),
     UNIQUE(package_name, version)
 );
 
@@ -143,7 +143,7 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   except:
     discard
   try:
-    result.db.exec("ALTER TABLE versions ADD COLUMN updated_at INTEGER DEFAULT (strftime('%s', 'now'))")
+    result.db.exec("ALTER TABLE versions ADD COLUMN updated_at INTEGER DEFAULT (unixepoch())")
   except:
     discard
 
@@ -181,13 +181,13 @@ proc touchPackage*(s: DbStorage, pkgName: PackageName) =
   ## Bump updated_at to mark a successful full ingest. Used by the fetcher
   ## to distinguish "metadata stored but ingest crashed" from "fully processed".
   s.db.exec("""
-    UPDATE packages SET updated_at = strftime('%s', 'now') WHERE name = ?
+    UPDATE packages SET updated_at = unixepoch() WHERE name = ?
   """, pkgName.string)
 
 proc loadPackage*(s: DbStorage, name: PackageName): Package =
   ## Load package by name
   let row = s.db.one("""
-    SELECT name, description, author, license, url, tags, created_at, updated_at
+    SELECT name, description, author, license, url, tags, CAST(created_at AS INTEGER), CAST(updated_at AS INTEGER)
     FROM packages WHERE name = ?
   """, name.string)
 
@@ -495,7 +495,7 @@ proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit:
 proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours: int = 1): bool =
   ## Check if #head was fetched within the given number of hours
   let row = s.db.one("""
-    SELECT v.updated_at FROM versions v
+    SELECT CAST(v.updated_at AS INTEGER) FROM versions v
     JOIN packages p ON v.package_id = p.id
     WHERE p.name = ? AND v.head_commit = '#head' AND v.updated_at IS NOT NULL
     ORDER BY v.updated_at DESC
@@ -514,7 +514,7 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
   if withinSeconds <= 0:
     return false
   let row = s.db.one("""
-    SELECT updated_at FROM packages
+    SELECT CAST(updated_at AS INTEGER) FROM packages
     WHERE name = ? AND updated_at IS NOT NULL
   """, pkgName)
 
@@ -542,7 +542,7 @@ proc storeValidationResult*(
       success = excluded.success,
       output = excluded.output,
       duration_ms = excluded.duration_ms,
-      tested_at = strftime('%s', 'now')
+      tested_at = unixepoch()
   """, pkgName, version, success.int64, output, durationMs.int64)
 
 proc getValidationResult*(s: DbStorage, pkgName, version: string): Option[tuple[success: bool, output: string,
@@ -565,7 +565,7 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
     testedAt: DateTime]] =
   ## Get all validation results for a package
   for row in s.db.all("""
-    SELECT version, success, tested_at FROM validation_results
+    SELECT version, success, CAST(tested_at AS INTEGER) FROM validation_results
     WHERE package_name = ?
     ORDER BY tested_at DESC
   """, pkgName):
@@ -580,7 +580,7 @@ proc validationDoneRecently*(s: DbStorage, pkgName: string, withinSeconds: int):
   if withinSeconds <= 0:
     return false
   let row = s.db.one("""
-    SELECT tested_at FROM validation_results
+    SELECT CAST(tested_at AS INTEGER) FROM validation_results
     WHERE package_name = ? AND tested_at IS NOT NULL
     ORDER BY tested_at DESC
     LIMIT 1
@@ -681,7 +681,7 @@ proc getTopPackagesByDownloads*(s: DbStorage, limit: int = 10): seq[TopPackage] 
 proc getRecentPackages*(s: DbStorage, limit: int = 10): seq[RecentPackage] =
   ## Get most recently added packages
   for row in s.db.all("""
-    SELECT name, description, author, created_at
+    SELECT name, description, author, CAST(created_at AS INTEGER)
     FROM packages
     ORDER BY created_at DESC
     LIMIT ?
@@ -777,7 +777,7 @@ proc storeReadme*(s: DbStorage, pkgName: string, version: string, content: strin
     VALUES (?, ?, ?, strftime('%s', 'now'))
     ON CONFLICT(package_name, version) DO UPDATE SET
       content = excluded.content,
-      fetched_at = strftime('%s', 'now')
+      fetched_at = unixepoch()
   """, pkgName, version, content)
 
 proc loadReadme*(s: DbStorage, pkgName: string, version: string): string =

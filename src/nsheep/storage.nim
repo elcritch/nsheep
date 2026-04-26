@@ -556,9 +556,9 @@ proc getValidationResult*(s: DbStorage, pkgName, version: string): Option[tuple[
   if row.isSome:
     let r = row.get()
     result = some((
-      success: r[0].intVal != 0,
+      success: r[0].kind != sqliteNull and r[0].intVal != 0,
       output: r[1].strVal,
-      durationMs: r[2].intVal.int
+      durationMs: if r[2].kind == sqliteNull: 0 else: r[2].intVal.int
     ))
 
 proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[version: string, success: bool,
@@ -571,7 +571,7 @@ proc getLatestValidationResults*(s: DbStorage, pkgName: string): seq[tuple[versi
   """, pkgName):
     result.add((
       version: row[0].strVal,
-      success: row[1].intVal != 0,
+      success: row[1].kind != sqliteNull and row[1].intVal != 0,
       testedAt: if row[2].kind == sqliteNull: now() else: fromUnix(row[2].intVal).local()
     ))
 

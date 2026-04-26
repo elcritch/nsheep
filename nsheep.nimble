@@ -25,3 +25,4 @@ task frontend, "Build frontend assets":
 
 task test, "Run tests":
   exec "nim c -r tests/test_tags.nim"
+  exec "nim c -r tests/test_nimble_parse.nim"

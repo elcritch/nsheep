@@ -32,8 +32,12 @@ proc parseNimbleDump*(nimbleContent: string, pkgName: string): Table[string, str
   createDir(tempDir / "src")
   writeFile(tempDir / "src" / (pkgName & ".nim"), "# dummy")
 
-  # Run nimble dump --json
-  let (output, exitCode) = execCmdEx("nimble dump --json " & nimblePath.quoteShell)
+  # nimble dump requires a git repo to determine VCS info
+  let setupCmd = "cd " & tempDir.quoteShell & " && git init >/dev/null 2>&1 && git config user.email \"nsheep@local\" >/dev/null 2>&1 && git config user.name \"NSheep\" >/dev/null 2>&1 && git add . >/dev/null 2>&1 && git commit -m \"init\" >/dev/null 2>&1"
+  discard execCmdEx(setupCmd)
+
+  # Run nimble dump --json from the temp directory
+  let (output, exitCode) = execCmdEx("cd " & tempDir.quoteShell & " && nimble dump --json")
   if exitCode != 0:
     return result # Return empty table on failure
 

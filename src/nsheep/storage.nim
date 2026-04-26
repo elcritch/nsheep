@@ -79,12 +79,20 @@ CREATE TABLE IF NOT EXISTS readmes (
     UNIQUE(package_name, version)
 );
 
+-- Permanently failed packages (deleted/invalid repos)
+CREATE TABLE IF NOT EXISTS failed_packages (
+    name TEXT PRIMARY KEY,
+    failed_at INTEGER DEFAULT (unixepoch()),
+    reason TEXT
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_packages_name ON packages(name);
 CREATE INDEX IF NOT EXISTS idx_versions_package ON versions(package_id);
 CREATE INDEX IF NOT EXISTS idx_validation_package ON validation_results(package_name);
 CREATE INDEX IF NOT EXISTS idx_downloads_package ON download_stats(package_name);
 CREATE INDEX IF NOT EXISTS idx_readmes_package ON readmes(package_name);
+CREATE INDEX IF NOT EXISTS idx_failed_package ON failed_packages(name);
 """
 
 # --- Types ---
@@ -512,6 +520,7 @@ proc headVersionFetchedRecently*(s: DbStorage, pkgName: PackageName, withinHours
 proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if the fetcher fully processed a package within the given seconds.
   ## Uses updated_at which is only bumped by touchPackage() on successful ingest.
+  ## Also checks failed_packages so deleted repos are not retried every cycle.
   if withinSeconds <= 0:
     return false
   let row = s.db.one("""
@@ -519,11 +528,31 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
     WHERE name = ? AND updated_at IS NOT NULL
   """, pkgName)
 
-  if row.isNone:
-    return false
+  if row.isSome:
+    let updatedAt = row.get()[0].intVal
+    return (getTime().toUnix - updatedAt) < withinSeconds.int64
 
-  let updatedAt = row.get()[0].intVal
-  result = (getTime().toUnix - updatedAt) < withinSeconds.int64
+  # Check if we recently failed this package permanently
+  let failedRow = s.db.one("""
+    SELECT CAST(failed_at AS INTEGER) FROM failed_packages
+    WHERE name = ?
+  """, pkgName)
+
+  if failedRow.isSome:
+    let failedAt = failedRow.get()[0].intVal
+    return (getTime().toUnix - failedAt) < withinSeconds.int64
+
+  return false
+
+proc recordFailedPackage*(s: DbStorage, pkgName: string, reason: string = "") =
+  ## Record a permanently failed package so we don't retry it every cycle.
+  s.db.exec("""
+    INSERT INTO failed_packages (name, failed_at, reason)
+    VALUES (?, unixepoch(), ?)
+    ON CONFLICT(name) DO UPDATE SET
+      failed_at = unixepoch(),
+      reason = excluded.reason
+  """, pkgName, reason)
 
 # --- Validation Result Operations ---
 

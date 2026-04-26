@@ -108,6 +108,7 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
       return irSuccess
     except VcsNotFoundError as e:
       warn "Repository not found, giving up", repo = pkg.repo.path, error = e.msg
+      recordFailedPackage(fetcher.store, pkg.name, "repo not found: " & e.msg)
       return irFailed
     except CatchableError as e:
       warn "Ingest failed", repo = pkg.repo.path, attempt = attempt, error = e.msg
@@ -115,6 +116,7 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
         sleep(1000 * attempt)
 
   error "Ingest failed permanently", repo = pkg.repo.path
+  recordFailedPackage(fetcher.store, pkg.name, "permanent ingest failure")
   return irFailed
 
 proc shouldFetch(fetcher: Fetcher, pkg: NimblePkg): bool =

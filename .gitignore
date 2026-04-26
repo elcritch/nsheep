@@ -45,3 +45,5 @@ dist/
 build/
 nimble.develop
 nimbledeps
+public/
+frontend/app.js

@@ -101,10 +101,9 @@ proc ingestPackage(fetcher: Fetcher, pkg: NimblePkg): IngestResult =
     info "Skipping recently processed package", repo = pkg.repo.path
     return irSkipped
 
-  # Then ingest
   for attempt in 1..MaxRetries:
     try:
-      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags, fetcher.fetcherConfig.interval)
+      discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags)
       return irSuccess
     except VcsNotFoundError as e:
       warn "Repository not found, giving up", repo = pkg.repo.path, error = e.msg

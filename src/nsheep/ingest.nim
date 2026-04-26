@@ -52,8 +52,7 @@ proc ingest*(
   store: DbStorage,
   repo: RepoRef,
   canonicalName: string = "",
-  tags: seq[string] = @[],
-  headInterval: int = 3600
+  tags: seq[string] = @[]
 ): Package {.raises: [IngestError, VcsError, StorageError, PuppyError, CatchableError, Exception].} =
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
@@ -143,33 +142,22 @@ proc ingest*(
       publishedAt: rel.publishedAt
     ))
 
-  # Process HEAD version (skip re-download if fetched recently)
+  # Process HEAD version
   let rel = headOpt.get()
   let headSemVer = initSemVer(99999, 99999, 99999)
 
-  if not headVersionFetchedRecently(store, pkgName, headInterval):
-    let tarballBytes = downloadTarball(client, repo, rel)
-    let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
-    storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
-    versions.add(PackageVersion(
-      version: headSemVer,
-      headCommit: "#head",
-      tarballPath: "",
-      checksum: checksum,
-      size: int64(tarballBytes.len),
-      publishedAt: rel.publishedAt
-    ))
-    info "Updated head version", repo = repo.path
-  else:
-    info "Head version up to date", repo = repo.path
-    versions.add(PackageVersion(
-      version: headSemVer,
-      headCommit: "#head",
-      tarballPath: "",
-      checksum: initChecksum("0" & repeat('0', 63)),
-      size: 0,
-      publishedAt: rel.publishedAt
-    ))
+  let tarballBytes = downloadTarball(client, repo, rel)
+  let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+  storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, "#head")
+  versions.add(PackageVersion(
+    version: headSemVer,
+    headCommit: "#head",
+    tarballPath: "",
+    checksum: checksum,
+    size: int64(tarballBytes.len),
+    publishedAt: rel.publishedAt
+  ))
+  info "Updated head version", repo = repo.path
 
   info "Downloaded versions", count = versions.len
 

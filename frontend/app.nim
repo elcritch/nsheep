@@ -984,7 +984,9 @@ proc postRender() =
     let el = kdom.document.getElementById(cstring"readme-content")
     if el != nil:
       let lowerName = readmeFilename.toLowerAscii()
-      let isMarkdown = lowerName.endsWith(".md") or lowerName.endsWith(".markdown") or
+      # Default to Markdown for empty filenames (legacy data before filename tracking)
+      let isMarkdown = readmeFilename.len == 0 or
+                       lowerName.endsWith(".md") or lowerName.endsWith(".markdown") or
                        lowerName.endsWith(".mkd") or lowerName.endsWith(".mdown")
       let purify = cast[JsObject](kdom.window)["DOMPurify"]
 

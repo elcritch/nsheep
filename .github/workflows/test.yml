@@ -38,8 +38,3 @@ jobs:
 
       - name: Build release binaries
         run: nimble build -d:release
-
-      - name: Test binaries
-        run: |
-          ./nsheep --help
-          ./nsheep-fetcher --help

@@ -191,7 +191,7 @@ validator:
   timeout: 300
   required: false
 
-storage: "local"  # or "cloudflare" (not yet implemented)
+storage: "local"
 ```
 
 ## Performance Characteristics
@@ -236,7 +236,7 @@ storage: "local"  # or "cloudflare" (not yet implemented)
 ## Future Enhancements
 
 1. **Webhook Support**: GitHub webhooks for real-time updates
-2. **Cloudflare Storage**: R2 + KV backend for edge distribution
+2. **CDN Caching**: Cloudflare edge caching for tarball downloads
 3. **Analytics**: Download statistics
 4. **Private Packages**: Support for private registries
 5. **Binary Caching**: Cache compiled binaries per platform

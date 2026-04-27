@@ -24,7 +24,7 @@ NimPack consists of two separate binaries:
 1. **`nsheep`** - HTTP server that serves package metadata and tarballs
 2. **`nsheep-fetcher`** - Background process that ingests packages from nimble registry
 
-They communicate through the shared storage directory (local filesystem or Cloudflare R2).
+They communicate through the shared storage directory (local filesystem).
 
 ### Background Fetcher
 
@@ -75,15 +75,7 @@ local:
   tarballDir: "./data/tarballs"
   metadataDir: "./data/metadata"
 
-cloudflare:
-  accountId: ""
-  r2AccessKeyId: ""
-  r2SecretKey: ""
-  r2Bucket: "nsheep-packages"
-  kvNamespaceId: ""
-  apiToken: ""
-
-storage: local  # "local" or "cloudflare"
+storage: local
 ```
 
 | Section | Description |
@@ -91,8 +83,7 @@ storage: local  # "local" or "cloudflare"
 | `server` | HTTP server bind address and port |
 | `github` | GitHub API token (optional) |
 | `local` | Local filesystem storage paths |
-| `cloudflare` | Cloudflare R2/KV credentials |
-| `storage` | Which backend to use: `local` or `cloudflare` |
+| `storage` | Storage backend (`local` only) |
 
 ## API
 

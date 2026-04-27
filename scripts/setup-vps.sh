@@ -79,14 +79,6 @@ local:
   dbPath: "./data/nsheep.db"
   tarballDir: "./data/tarballs"
 
-cloudflare:
-  accountId: ""
-  r2AccessKeyId: ""
-  r2SecretKey: ""
-  r2Bucket: "nsheep-packages"
-  kvNamespaceId: ""
-  apiToken: ""
-
 fetcher:
   interval: 3600
   maxPackages: 0

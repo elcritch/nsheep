@@ -1,286 +1,180 @@
 # NimPack Deployment Guide
 
-## Architecture Options
+## Architecture
 
-### Option 1: Cloudflare Tunnel (Recommended)
-- **Pros**: No public IP required, automatic HTTPS, DDoS protection
-- **Best for**: Home NAS, Raspberry Pi, or when you don't want to manage firewalls
-- **Architecture**: `User → Cloudflare CDN → Cloudflare Tunnel → Your Server`
+```
+User → Cloudflare CDN → Nginx → nsheep (port 8080)
+                ↓
+           nsheep-fetcher (background ingestion)
+```
 
-### Option 2: Traditional VPS + Cloudflare CDN
-- **Pros**: Full control, simple and direct
-- **Best for**: Existing VPS (e.g., Hetzner, DigitalOcean)
-- **Architecture**: `User → Cloudflare CDN → VPS`
-
-### Option 3: Docker Compose (Local/Server)
-- **Best for**: Quick testing or private deployment
+- **Cloudflare**: DNS + CDN (caches tarballs at edge)
+- **VPS**: Runs nsheep + nsheep-fetcher + nginx reverse proxy
+- **Storage**: SQLite database + tarball files on local disk
 
 ---
 
-## Option 1: Cloudflare Tunnel Deployment
+## VPS Setup
 
-### 1. Install cloudflared
+### 1. Requirements
 
-```bash
-# macOS
-brew install cloudflared
+- Linux VPS (Alpine, Ubuntu, Debian, etc.)
+- 2GB+ RAM, 20GB+ disk
+- Domain pointed at VPS IP via Cloudflare
 
-# Linux
-curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared.deb
-
-# Or use Docker
-docker run -d --name cloudflared cloudflare/cloudflared:latest tunnel --no-autoupdate run --token YOUR_TOKEN
-```
-
-### 2. Create Tunnel
+### 2. Create User
 
 ```bash
-# Login to Cloudflare
-cloudflared tunnel login
-
-# Create tunnel
-cloudflared tunnel create nsheep-server
-
-# This will output a tunnel ID, save it
-# Example: 2c5e8c8e-1234-5678-9abc-def012345678
-```
-
-### 3. Configure Tunnel
-
-Create `~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: 2c5e8c8e-1234-5678-9abc-def012345678
-credentials-file: /root/.cloudflared/2c5e8c8e-1234-5678-9abc-def012345678.json
-
-ingress:
-  - hostname: nimpack.example.com
-    service: http://localhost:8080
-  - service: http_status:404
-```
-
-### 4. Run NimPack + Tunnel
-
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  nsheep:
-    build: .
-    container_name: nsheep
-    volumes:
-      - ./data:/app/data
-      - ./cfg.yaml:/app/cfg.yaml:ro
-    network_mode: host  # Use host network for tunnel access
-    restart: unless-stopped
-    command: /app/nsheep /app/cfg.yaml
-
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    container_name: nsheep-tunnel
-    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
-    environment:
-      - CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
-    restart: unless-stopped
-```
-
-Or use systemd services:
-
-```ini
-# /etc/systemd/system/nsheep.service
-[Unit]
-Description=NimPack Package Registry
-After=network.target
-
-[Service]
-Type=simple
-User=nsheep
-WorkingDirectory=/opt/nsheep
-ExecStart=/opt/nsheep/nsheep /opt/nsheep/cfg.yaml
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```ini
-# /etc/systemd/system/nsheep-tunnel.service
-[Unit]
-Description=Cloudflare Tunnel for NimPack
-After=network.target nsheep.service
-
-[Service]
-Type=simple
-User=nsheep
-ExecStart=/usr/local/bin/cloudflared tunnel run 2c5e8c8e-1234-5678-9abc-def012345678
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Start:
-```bash
-sudo systemctl enable --now nsheep nsheep-tunnel
-```
-
----
-
-## Option 2: VPS + Cloudflare CDN
-
-### 1. Purchase a VPS
-
-Recommended:
-- Hetzner (Germany, affordable) - CX11 3.79€/month
-- DigitalOcean - $6/month
-- Linode - $5/month
-
-### 2. Configure DNS
-
-In Cloudflare Dashboard:
-1. Add A record: `nimpack.example.com` → `YOUR_VPS_IP`
-2. Enable orange cloud (Proxied)
-
-### 3. Deploy NimPack
-
-```bash
-# On the VPS
+# As root
+adduser -D -s /bin/sh nsheep
 mkdir -p /opt/nsheep
-cd /opt/nsheep
+chown -R nsheep:nsheep /opt/nsheep
+```
 
-# Download binary (from GitHub Releases)
-wget https://github.com/YOUR_USERNAME/nsheep/releases/latest/download/nsheep-linux-amd64.tar.gz
+### 3. Deploy Binaries
+
+```bash
+# On the VPS as nsheep user
+mkdir -p /opt/nsheep && cd /opt/nsheep
+
+# Download from GitHub Releases (or copy via SCP)
+wget https://github.com/nim-community/nsheep/releases/latest/download/nsheep-linux-amd64.tar.gz
 tar -xzf nsheep-linux-amd64.tar.gz
-chmod +x nsheep
+chmod +x nsheep nsheep-fetcher
 
 # Create config
 cat > cfg.yaml << 'EOF'
 server:
   bindAddr: "127.0.0.1"
   port: 8080
+  publicDir: "./public"
 
 github:
-  token: ""
+  token: ""  # Optional: GitHub API token for higher rate limits
 
 local:
   tarballDir: "./data/tarballs"
   metadataDir: "./data/metadata"
 
-cloudflare:
-  accountId: ""
-  r2AccessKeyId: ""
-  r2SecretKey: ""
-  r2Bucket: "nsheep-packages"
-  kvNamespaceId: ""
-  apiToken: ""
+fetcher:
+  interval: 3600
+  maxPackages: 0
+  filterPatterns: []
+
+validator:
+  enabled: true
+  dockerImage: "nimlang/nim:latest"
+  timeout: 300
+  required: false
 
 storage: local
 EOF
 ```
 
-### 4. Configure Nginx (Optional, Recommended)
+### 4. Configure Nginx
 
 ```nginx
-# /etc/nginx/sites-available/nsheep
+# /etc/nginx/http.d/nsheep.conf (Alpine)
+# or /etc/nginx/sites-available/nsheep (Debian/Ubuntu)
+
 server {
     listen 80;
-    server_name nimpack.example.com;
-    
+    server_name nimpack.org;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Large file uploads
+
         client_max_body_size 100M;
     }
 }
 ```
 
-Enable HTTPS (handled automatically by Cloudflare)
+Enable:
+```bash
+# Alpine
+rc-service nginx restart
+
+# Or Debian/Ubuntu
+ln -s /etc/nginx/sites-available/nsheep /etc/nginx/sites-enabled/
+nginx -t && systemctl restart nginx
+```
+
+HTTPS is handled automatically by Cloudflare (if orange cloud is enabled).
+
+### 5. Configure OpenRC Services (Alpine)
+
+```bash
+# /etc/init.d/nsheep
+cat > /etc/init.d/nsheep << 'EOF'
+#!/sbin/openrc-run
+
+description="NimPack Package Registry"
+command="/opt/nsheep/nsheep"
+command_args="/opt/nsheep/cfg.yaml"
+command_user="nsheep:nsheep"
+pidfile="/run/nsheep.pid"
+directory="/opt/nsheep"
+
+supervisor="supervise-daemon"
+EOF
+chmod +x /etc/init.d/nsheep
+
+# /etc/init.d/nsheep-fetcher
+cat > /etc/init.d/nsheep-fetcher << 'EOF'
+#!/sbin/openrc-run
+
+description="NimPack Package Fetcher"
+command="/opt/nsheep/nsheep-fetcher"
+command_args="/opt/nsheep/cfg.yaml"
+command_user="nsheep:nsheep"
+pidfile="/run/nsheep-fetcher.pid"
+directory="/opt/nsheep"
+
+supervisor="supervise-daemon"
+EOF
+chmod +x /etc/init.d/nsheep-fetcher
+
+# Enable and start
+rc-update add nsheep default
+rc-update add nsheep-fetcher default
+rc-service nsheep start
+rc-service nsheep-fetcher start
+```
 
 ---
 
-## Cloudflare Service Setup
+## Cloudflare DNS Setup
 
-### 1. Create R2 Bucket
+In Cloudflare Dashboard → DNS:
 
-```bash
-# Using wrangler
-npm install -g wrangler
-wrangler login
+1. Add **A record**: `nimpack.org` → `YOUR_VPS_IP`
+2. Set to **Proxied** (orange cloud 🟠)
+3. SSL/TLS mode: **Full (strict)** or **Full**
 
-# Create bucket
-wrangler r2 bucket create nsheep-packages
-
-# Get S3-compatible credentials
-wrangler r2 bucket s3 list nsheep-packages
+Tarballs are automatically cached by Cloudflare because the server sends:
 ```
-
-Or via Dashboard:
-1. Open Cloudflare Dashboard → R2
-2. Click "Create bucket"
-3. Name: `nsheep-packages`
-4. Save the Access Key ID and Secret Access Key
-
-### 2. Create KV Namespace
-
-```bash
-wrangler kv:namespace create "NSHEEP_INDEX"
+Cache-Control: public, max-age=31536000, immutable
 ```
-
-Or via Dashboard:
-1. Workers & Pages → KV
-2. Create a namespace
-3. Name: `nsheep-index`
-4. Save the Namespace ID
-
-### 3. Create API Token
-
-In Dashboard:
-1. My Profile → API Tokens
-2. Create Token
-3. Use template "Edit Cloudflare Workers"
-4. Permissions:
-   - Account: Cloudflare Tunnel:Read
-   - Zone: Zone:Read, DNS:Edit
-   - R2: Edit
-   - Workers KV Storage: Edit
 
 ---
 
 ## CI/CD Deployment
 
-### GitHub Secrets Setup
+### GitHub Secrets
 
 In Repository Settings → Secrets and variables → Actions:
 
-```
-# For Cloudflare storage
-CF_ACCOUNT_ID
-CF_API_TOKEN
-CF_R2_ACCESS_KEY_ID
-CF_R2_SECRET_ACCESS_KEY
-CF_R2_BUCKET
-CF_KV_NAMESPACE_ID
+| Secret | Value |
+|--------|-------|
+| `SSH_HOST` | Your VPS IP |
+| `SSH_USER` | `nsheep` |
+| `SSH_PRIVATE_KEY` | Deploy SSH private key |
 
-# For Cloudflare Tunnel (if used)
-CF_TUNNEL_TOKEN
-
-# For traditional SSH deployment (if used)
-SSH_PRIVATE_KEY
-PRODUCTION_HOST
-PRODUCTION_USER
-```
-
-### Automatic Deployment
-
-Pushing code to the `main` branch will automatically trigger deployment (per `.github/workflows/deploy.yml`)
+Pushing to `main` automatically builds and deploys via `.github/workflows/deploy.yml`.
 
 ---
 
@@ -288,38 +182,68 @@ Pushing code to the `main` branch will automatically trigger deployment (per `.g
 
 ```bash
 # Health check
-curl https://nimpack.example.com/health
-
-# Test ingestion
-curl -X POST https://nimpack.example.com/api/v1/packages/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://github.com/nim-lang/jsony"}'
+curl https://nimpack.org/health
 
 # View package list
-curl https://nimpack.example.com/api/v1/packages
+curl https://nimpack.org/api/v1/packages
+
+# Test download (should be CDN cached)
+curl -I https://nimpack.org/download/jsony/1.1.5
 ```
 
 ---
 
 ## Troubleshooting
 
-### Tunnel Connection Issues
+### View Logs
+
 ```bash
-cloudflared tunnel diagnose
-cloudflared tunnel info <tunnel-id>
+# Alpine OpenRC
+rc-service nsheep status
+tail -f /var/log/messages | grep nsheep
+
+# Or check chronicles log files in /opt/nsheep/data/
 ```
 
-### R2 Permission Errors
-Check if API Token has R2:Edit permission
+### Service Won't Start
 
-### KV Access Failures
-Verify the KV namespace ID is correct
-
-### View Logs
 ```bash
-# Docker
-docker logs nsheep
+# Run manually to see errors
+su -s /bin/sh nsheep -c "/opt/nsheep/nsheep /opt/nsheep/cfg.yaml"
+```
 
-# Systemd
-journalctl -u nsheep -f
+### Out of Memory
+
+The VPS has ~939MB RAM. Large tarball downloads were causing OOM kills — this was fixed by using `readFile` instead of loading tarballs into `seq[byte]`. If you still see OOMs, check:
+
+```bash
+free -h
+dmesg | grep -i "killed process"
+```
+
+---
+
+## Maintenance
+
+### Update Packages Manually
+
+```bash
+curl -X POST https://nimpack.org/api/v1/ingest
+```
+
+### Check Disk Usage
+
+```bash
+du -sh /opt/nsheep/data/tarballs
+du -sh /opt/nsheep/data/nsheep.db
+```
+
+### Backup
+
+```bash
+# SQLite DB
+cp /opt/nsheep/data/nsheep.db /backup/nsheep-$(date +%Y%m%d).db
+
+# Tarballs (optional, can be re-fetched)
+rsync -av /opt/nsheep/data/tarballs/ /backup/tarballs/
 ```

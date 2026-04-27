@@ -26,14 +26,6 @@ local:
   dbPath: "./data/nsheep.db"      # SQLite database path
   tarballDir: "./data/tarballs"   # Directory for package tarballs
 
-cloudflare:
-  accountId: ""
-  r2AccessKeyId: ""
-  r2SecretKey: ""
-  r2Bucket: "nsheep-packages"
-  kvNamespaceId: ""
-  apiToken: ""
-
 fetcher:
   interval: 3600        # Seconds between fetch cycles (default: 1 hour)
   maxPackages: 0        # Max packages per cycle (0 = unlimited)
@@ -45,5 +37,5 @@ validator:
   timeout: 300          # Build timeout in seconds (5 minutes)
   required: false       # If true, packages that fail validation won't be stored
 
-# Which storage backend to use: "local" or "cloudflare"
+# Storage backend (local only)
 storage: local

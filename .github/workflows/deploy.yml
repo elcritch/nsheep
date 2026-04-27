@@ -6,47 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy-staging:
+  deploy:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Nim
-        uses: alaviss/setup-nim@0.1.1
-        with:
-          path: 'nim'
-          version: 'version-2-2'
-
-      - name: Cache Nimble packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nimble
-          key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
-          restore-keys: |
-            ${{ runner.os }}-nimble-
-
-      - name: Install dependencies
-        run: nimble install -y --depsOnly
-
-      - name: Build release binaries
-        run: nimble build -d:release
-
-      - name: Deploy to staging server
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          STAGING_HOST: ${{ secrets.STAGING_HOST }}
-          STAGING_USER: ${{ secrets.STAGING_USER }}
-        run: |
-          echo "$SSH_PRIVATE_KEY" > key.pem
-          chmod 600 key.pem
-          scp -i key.pem -o StrictHostKeyChecking=no nsheep config.json $STAGING_USER@$STAGING_HOST:/opt/nsheep-staging/
-          ssh -i key.pem -o StrictHostKeyChecking=no $STAGING_USER@$STAGING_HOST "sudo systemctl restart nsheep-staging"
-
-  deploy-production:
-    runs-on: ubuntu-latest
-    needs: deploy-staging
     if: github.ref == 'refs/heads/main'
     environment: production
     steps:
@@ -70,15 +31,39 @@ jobs:
         run: nimble install -y --depsOnly
 
       - name: Build release binaries
-        run: nimble build -d:release
+        run: nimble build -d:release -d:strip
 
-      - name: Deploy to production server
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
-          PRODUCTION_USER: ${{ secrets.PRODUCTION_USER }}
-        run: |
-          echo "$SSH_PRIVATE_KEY" > key.pem
-          chmod 600 key.pem
-          scp -i key.pem -o StrictHostKeyChecking=no nsheep config.json $PRODUCTION_USER@$PRODUCTION_HOST:/opt/nsheep/
-          ssh -i key.pem -o StrictHostKeyChecking=no $PRODUCTION_USER@$PRODUCTION_HOST "sudo systemctl restart nsheep"
+      - name: Upload binaries
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "nsheep,nsheep-fetcher"
+          target: "/opt/nsheep/"
+          strip_components: 0
+
+      - name: Upload static files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "public/*"
+          target: "/opt/nsheep/public/"
+          strip_components: 1
+
+      - name: Restart services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/nsheep
+            chmod +x nsheep nsheep-fetcher
+            sudo rc-service nsheep restart
+            sudo rc-service nsheep-fetcher restart
+            sleep 2
+            sudo rc-service nsheep status || exit 1
+            sudo rc-service nsheep-fetcher status || exit 1

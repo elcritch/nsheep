@@ -247,7 +247,8 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
     LEFT JOIN versions v ON v.id = (
       SELECT id FROM versions
       WHERE package_id = p.id
-      ORDER BY major DESC, minor DESC, patch DESC
+      ORDER BY CASE WHEN head_commit IS NULL THEN 0 ELSE 1 END,
+               major DESC, minor DESC, patch DESC
       LIMIT 1
     )
     ORDER BY p.name
@@ -298,7 +299,8 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
     LEFT JOIN versions v ON v.id = (
       SELECT id FROM versions
       WHERE package_id = p.id
-      ORDER BY major DESC, minor DESC, patch DESC
+      ORDER BY CASE WHEN head_commit IS NULL THEN 0 ELSE 1 END,
+               major DESC, minor DESC, patch DESC
       LIMIT 1
     )
     WHERE (? = '' OR p.name LIKE ? OR p.description LIKE ?)

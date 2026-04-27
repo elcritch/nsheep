@@ -73,9 +73,10 @@ proc handlePackagesJson(state: ptr ServerState): RequestHandler =
       for t in s.tags:
         tags.add( % t)
 
+      let urlVersion = if s.latestVersion == "#head": "head" else: s.latestVersion
       arr.add(%*{
         "name": s.name,
-        "url": pubUrl & "/download/" & s.name & "/" & s.latestVersion,
+        "url": pubUrl & "/download/" & s.name & "/" & urlVersion,
         "method": "http",
         "description": s.description,
         "license": s.license,
@@ -364,7 +365,7 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
     # Parse version (semver or #head)
     var version: SemVer
     var headCommit = ""
-    if versionStr == "#head":
+    if versionStr == "#head" or versionStr == "head":
       headCommit = "#head"
       version = initSemVer(0, 0, 0)
     else:

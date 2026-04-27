@@ -325,8 +325,14 @@ proc handleStats(state: ptr ServerState): RequestHandler =
       authorsJson.add(%*{"name": a.name, "packageCount": a.packageCount})
 
     var licensesJson = newJArray()
+    var othersCount = 0
     for l in licenses:
-      licensesJson.add(%*{"license": l.license, "count": l.count})
+      if l.count < 20:
+        othersCount += l.count
+      else:
+        licensesJson.add(%*{"license": l.license, "count": l.count})
+    if othersCount > 0:
+      licensesJson.add(%*{"license": "others", "count": othersCount})
 
     var hostsJson = newJArray()
     for h in hosts:
@@ -377,27 +383,21 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
     except storage.StorageError as e:
       error "Failed to record download", package = nameStr, version = versionStr, error = e.msg
 
-    # Load tarball
-    var data: seq[byte]
-    try:
-      data = loadTarball(state.store, name, version, refName)
+    # Look up tarball path
+    let tarPath = try:
+      getTarballPath(state.store, name, version, refName)
     except storage.NotFoundError:
-      # Fallback: if semver not found, try HEAD version
-      # (Many packages are stored as HEAD even though their .nimble has a semver)
-      if refName.len == 0:
-        try:
-          data = loadTarball(state.store, name, initSemVer(0, 0, 0), "head")
-        except storage.NotFoundError:
-          sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
-          return
-        except storage.StorageError as e:
-          sendError(request, 500, "storage_error", e.msg)
-          return
-      else:
-        sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
-        return
+      sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
+      return
     except storage.StorageError as e:
       sendError(request, 500, "storage_error", e.msg)
+      return
+
+    # Read file directly as string (avoid seq[byte] -> string copy)
+    let strData = try:
+      readFile(tarPath)
+    except CatchableError as e:
+      sendError(request, 500, "read_error", "cannot read tarball: " & e.msg)
       return
 
     # Serve with appropriate headers
@@ -407,11 +407,6 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
     headers["Cache-Control"] = "public, max-age=31536000, immutable" # 1 year
     headers["Access-Control-Allow-Origin"] = "*"
     addSecurityHeaders(headers)
-
-    # Convert bytes to string for mummy
-    var strData = newString(data.len)
-    if data.len > 0:
-      copyMem(addr strData[0], unsafeAddr data[0], data.len)
 
     request.respond(200, headers, strData)
 

@@ -554,7 +554,8 @@ proc renderHome(): VNode =
   buildHtml(tdiv(class = "page home")):
     tdiv(class = "search-wrap"):
       tdiv(class = "search-box"):
-        input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…", value = cstring(searchQuery)):
+        input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…",
+            value = cstring(searchQuery)):
           proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
           proc onkeydown(ev: Event; target: VNode) =
             let k = cast[KeyboardEvent](ev)
@@ -785,7 +786,7 @@ proc renderPackage(): VNode =
             if vstatus != "":
               span(class = cstring("validation-badge " & vclass)): text vstatus
             a(
-              href = cstring("/download/" & detail.name & "/" & v.version),
+              href = cstring("/download/" & detail.name & "/" & v.version.replace("#", "")),
               class = "download-link",
               download = ""
             ): text "Download"

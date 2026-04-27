@@ -462,6 +462,36 @@ proc loadTarball*(
   else:
     raise newException(StorageError, "cannot read tarball: " & tarPath)
 
+proc getTarballPath*(
+  s: DbStorage,
+  pkgName: PackageName,
+  ver: SemVer,
+  refName: string = ""
+): string =
+  ## Look up tarball filesystem path without loading bytes
+  let row = if refName.len > 0:
+    s.db.one("""
+      SELECT tarball_path FROM versions v
+      JOIN packages p ON v.package_id = p.id
+      WHERE p.name = ? AND v.head_commit IS NOT NULL
+      ORDER BY v.major DESC, v.minor DESC, v.patch DESC
+      LIMIT 1
+    """, pkgName.string)
+  else:
+    s.db.one("""
+      SELECT tarball_path FROM versions v
+      JOIN packages p ON v.package_id = p.id
+      WHERE p.name = ? AND v.major = ? AND v.minor = ? AND v.patch = ? AND v.head_commit IS NULL
+    """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
+
+  if row.isNone:
+    let verStr = if refName.len > 0: refName else: $ver.major & "." & $ver.minor & "." & $ver.patch
+    raise newException(NotFoundError, "version not found: " & $pkgName & "@" & verStr)
+
+  result = row.get()[0].strVal
+  if not fileExists(result):
+    raise newException(NotFoundError, "tarball file not found: " & result)
+
 proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, refName: string = ""): bool =
   ## Check if version exists
   let row = if refName.len > 0:

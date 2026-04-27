@@ -5,7 +5,7 @@
 
 import std/[times, tables, strutils, options]
 import chronicles
-import nsheep/[types, storage, vcs], puppy
+import nsheep/[types, storage, vcs, tarstrip], puppy
 
 # --- Errors ---
 
@@ -126,6 +126,9 @@ proc ingest*(
     if repo.subdir.len > 0:
       tarballBytes = trimTarballToSubdir(tarballBytes, repo, pkgName, rel.tag)
 
+    # Strip non-essential files (tests, docs, CI configs, etc.)
+    tarballBytes = stripTarballBytes(tarballBytes)
+
     # Compute checksum
     # TODO: use std/sha256
     let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
@@ -168,6 +171,9 @@ proc ingest*(
       # Trim to subdir for monorepo packages
       if repo.subdir.len > 0:
         tarballBytes = trimTarballToSubdir(tarballBytes, repo, pkgName, rel.tag)
+
+      # Strip non-essential files (tests, docs, CI configs, etc.)
+      tarballBytes = stripTarballBytes(tarballBytes)
 
       let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
       storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, headSha)

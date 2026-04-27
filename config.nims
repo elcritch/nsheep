@@ -14,3 +14,7 @@ task test, "Run tests":
   exec "nim c -r tests/test_tags.nim"
   exec "nim c -r tests/test_nimble_parse.nim"
   exec "nim c -r tests/test_parse_repo_url.nim"
+# begin Nimble config (version 2)
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  include "nimble.paths"
+# end Nimble config

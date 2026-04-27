@@ -6,7 +6,6 @@ description   = "A centralized Nim package registry + CDN server"
 license       = "MIT"
 srcDir        = "src"
 bin           = @["nsheep"]
-namedBin      = {"nsheep/fetcher": "nsheep-fetcher"}.toTable()
 
 # Dependencies
 requires "nim >= 2.0.16"
@@ -20,5 +19,3 @@ requires "zippy >= 0.10.0"
 feature "frontend":
   requires "karax"
 
-when fileExists("config.nims"):
-  include "config.nims"

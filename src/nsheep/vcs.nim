@@ -15,6 +15,7 @@ type
     vhGitHub
     vhGitLab
     vhCodeberg
+    vhGitea
     vhSourceHut
     vhBitbucket
     vhGenericGit
@@ -118,8 +119,8 @@ proc parseRepoUrl*(url: string): Option[RepoRef] =
     if path.startsWith("~") and path.count('/') == 1:
       result = some(RepoRef(host: vhSourceHut, url: input, path: path, subdir: subdir))
   else:
-    # Self-hosted GitLab or other unknown git host
-    if hostname.contains("gitlab"):
+    # Self-hosted GitLab: only match *.gitlab.com and gitlab.com
+    if hostname == "gitlab.com" or hostname.endsWith(".gitlab.com"):
       result = some(RepoRef(host: vhGitLab, url: input, path: path, apiBase: "https://" & hostname, subdir: subdir))
     else:
       result = some(RepoRef(host: vhGenericGit, url: input, path: path, subdir: subdir))
@@ -130,6 +131,44 @@ proc subdirPath*(repo: RepoRef, filename: string): string =
     result = repo.subdir & "/" & filename
   else:
     result = filename
+
+proc hostBaseUrl*(repo: RepoRef): string =
+  ## Extract scheme + hostname from repo.url.
+  let uri = parseUri(repo.url)
+  result = uri.scheme & "://" & uri.hostname
+
+proc detectHostType*(client: VcsClient, repo: RepoRef): RepoRef =
+  ## For generic git repos, probe APIs to detect GitLab or Gitea.
+  ## Returns the original repo if already known or detection fails.
+  if repo.host != vhGenericGit:
+    return repo
+
+  let ua = Header(key: "User-Agent", value: "nsheep-" & Version)
+
+  # Try GitLab API v4
+  let glUrl = hostBaseUrl(repo) & "/api/v4/projects/" & repo.path.replace("/", "%2F")
+  try:
+    let resp = get(glUrl, @[ua], timeout = 10.float32)
+    if resp.code == 200:
+      let json = parseJson(resp.body)
+      if json.hasKey("id"):
+        return RepoRef(host: vhGitLab, url: repo.url, path: repo.path,
+                       apiBase: hostBaseUrl(repo), subdir: repo.subdir)
+  except:
+    discard
+
+  # Try Gitea API v1
+  let gtUrl = hostBaseUrl(repo) & "/api/v1/repos/" & repo.path
+  try:
+    let resp = get(gtUrl, @[ua], timeout = 10.float32)
+    if resp.code == 200:
+      let json = parseJson(resp.body)
+      if json.hasKey("id"):
+        return RepoRef(host: vhGitea, url: repo.url, path: repo.path, subdir: repo.subdir)
+  except:
+    discard
+
+  return repo
 
 # --- HTTP Helpers ---
 
@@ -386,11 +425,11 @@ proc gitlabFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): str
   let opt = gitlabFetchFile(client, repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
 
-# --- Codeberg (Gitea/Forgejo) ---
+# --- Codeberg / Gitea / Forgejo ---
 
-proc codebergFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
-  let url = "https://codeberg.org/api/v1/repos/" & repo.path
-  let cacheKey = "cb:repo:" & repo.path
+proc giteaFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
+  let url = hostBaseUrl(repo) & "/api/v1/repos/" & repo.path
+  let cacheKey = "gt:repo:" & repo.path
   let json = getJson(client, url, cacheKey)
 
   let desc = if json.hasKey("description") and json["description"].kind != JNull:
@@ -401,9 +440,9 @@ proc codebergFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
 
   result = (desc, updatedAt)
 
-proc codebergFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
-  let url = "https://codeberg.org/api/v1/repos/" & repo.path & "/tags?page=-1"
-  let cacheKey = "cb:tags:" & repo.path
+proc giteaFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
+  let url = hostBaseUrl(repo) & "/api/v1/repos/" & repo.path & "/tags?page=-1"
+  let cacheKey = "gt:tags:" & repo.path
   let json = getJson(client, url, cacheKey)
 
   if json.kind != JArray:
@@ -413,24 +452,51 @@ proc codebergFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
     if not item.hasKey("name"):
       continue
     let tag = item["name"].getStr()
-    let tarballUrl = "https://codeberg.org/" & repo.path & "/archive/" & tag & ".tar.gz"
+    let tarballUrl = hostBaseUrl(repo) & "/" & repo.path & "/archive/" & tag & ".tar.gz"
     let publishedAt = if item.hasKey("commit") and item["commit"].hasKey("timestamp"):
       try: parse(item["commit"]["timestamp"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
       else: now()
 
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 
-proc codebergFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
-  let url = "https://codeberg.org/" & repo.path & "/raw/tag/" & tag & "/" & filename
+proc giteaFetchFile(client: VcsClient, repo: RepoRef, tag, filename: string): Option[string] =
+  let url = hostBaseUrl(repo) & "/" & repo.path & "/raw/tag/" & tag & "/" & filename
   try:
     let data = downloadHttp(url, client.codebergToken)
     result = some(cast[string](data))
   except:
     result = none(string)
 
-proc codebergFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): string =
-  let opt = codebergFetchFile(client, repo, tag, path)
+proc giteaFetchReadme(client: VcsClient, repo: RepoRef, tag, path: string): string =
+  let opt = giteaFetchFile(client, repo, tag, path)
   if opt.isSome: result = opt.get() else: result = ""
+
+proc giteaFetchHeadVersion(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
+  ## Fetch latest HEAD commit for Gitea/Codeberg/Forgejo.
+  let base = hostBaseUrl(repo)
+  let repoUrl = base & "/api/v1/repos/" & repo.path
+  let cacheKey = "gt:head:" & repo.path
+  try:
+    # First get default branch from repo metadata
+    let repoJson = getJson(client, repoUrl, cacheKey & ":repo")
+    let defaultBranch = if repoJson.hasKey("default_branch"):
+      repoJson["default_branch"].getStr() else: "main"
+
+    let commitsUrl = base & "/api/v1/repos/" & repo.path & "/commits?limit=1"
+    let json = getJson(client, commitsUrl, cacheKey)
+    if json.kind != JArray or json.len == 0:
+      return none(VersionInfo)
+    let commit = json[0]
+    let commitDate = if commit.hasKey("commit") and commit["commit"].hasKey("committer") and commit["commit"][
+        "committer"].hasKey("date"):
+      try: parse(commit["commit"]["committer"]["date"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
+      else: now()
+    let tarballUrl = base & "/" & repo.path & "/archive/" & defaultBranch & ".tar.gz"
+    let sha = if commit.hasKey("sha"): commit["sha"].getStr() else: ""
+    result = some(VersionInfo(tag: "#head", tarballUrl: tarballUrl, publishedAt: commitDate, commitSha: sha))
+  except CatchableError as e:
+    warn "Failed to fetch HEAD for Gitea repo", repo = repo.path, error = e.msg
+    result = none(VersionInfo)
 
 # --- Bitbucket ---
 
@@ -579,8 +645,8 @@ proc makeTarballUrl*(repo: RepoRef, tag: string): string =
   of vhGitLab:
     let repoName = repo.path.split('/')[^1]
     result = "https://gitlab.com/" & repo.path & "/-/archive/" & tag & "/" & repoName & "-" & tag & ".tar.gz"
-  of vhCodeberg:
-    result = "https://codeberg.org/" & repo.path & "/archive/" & tag & ".tar.gz"
+  of vhCodeberg, vhGitea:
+    result = hostBaseUrl(repo) & "/" & repo.path & "/archive/" & tag & ".tar.gz"
   of vhBitbucket:
     result = "https://bitbucket.org/" & repo.path & "/get/" & tag & ".tar.gz"
   of vhSourceHut:
@@ -791,7 +857,7 @@ proc fetchRepoMeta*(client: VcsClient, repo: RepoRef): (string, DateTime) =
     case repo.host
     of vhGitHub: result = githubFetchMeta(client, repo)
     of vhGitLab: result = gitlabFetchMeta(client, repo)
-    of vhCodeberg: result = codebergFetchMeta(client, repo)
+    of vhCodeberg, vhGitea: result = giteaFetchMeta(client, repo)
     of vhBitbucket: result = bitbucketFetchMeta(client, repo)
     of vhSourceHut, vhGenericGit:
       result = ("", now())
@@ -812,7 +878,7 @@ proc fetchHeadVersion*(client: VcsClient, repo: RepoRef): Option[VersionInfo] =
   case repo.host
   of vhGitHub: result = githubFetchHeadVersion(client, repo)
   of vhGitLab: result = gitlabFetchHeadVersion(client, repo)
-  of vhCodeberg: result = codebergFetchHeadVersion(client, repo)
+  of vhCodeberg, vhGitea: result = giteaFetchHeadVersion(client, repo)
   of vhBitbucket: result = bitbucketFetchHeadVersion(client, repo)
   of vhSourceHut: result = genericGitFetchHeadVersion(repo)
   of vhGenericGit: result = genericGitFetchHeadVersion(repo)
@@ -827,7 +893,7 @@ proc downloadTarball*(client: VcsClient, repo: RepoRef, ver: VersionInfo): seq[b
       result = downloadHttp(ver.tarballUrl, client.gitlabToken, timeout = 120)
     else:
       raise newException(VcsError, "no tarball URL for " & repo.path & " @ " & ver.tag)
-  of vhCodeberg:
+  of vhCodeberg, vhGitea:
     if ver.tarballUrl.len > 0:
       result = downloadHttp(ver.tarballUrl, client.codebergToken, timeout = 120)
     else:
@@ -854,7 +920,7 @@ proc fetchNimbleFile*(client: VcsClient, repo: RepoRef, tag: string): Option[str
     case repo.host
     of vhGitHub: result = githubFetchNimbleFile(client, repo, tag, filename)
     of vhGitLab: result = gitlabFetchFile(client, repo, tag, filename)
-    of vhCodeberg: result = codebergFetchFile(client, repo, tag, filename)
+    of vhCodeberg, vhGitea: result = giteaFetchFile(client, repo, tag, filename)
     of vhBitbucket: result = bitbucketFetchFile(client, repo, tag, filename)
     of vhSourceHut, vhGenericGit:
       result = genericGitFetchFile(repo, tag, filename)
@@ -869,7 +935,7 @@ proc fetchReadme*(client: VcsClient, repo: RepoRef, tag: string): string =
     case repo.host
     of vhGitHub: result = githubFetchReadme(client, repo, tag, path)
     of vhGitLab: result = gitlabFetchReadme(client, repo, tag, path)
-    of vhCodeberg: result = codebergFetchReadme(client, repo, tag, path)
+    of vhCodeberg, vhGitea: result = giteaFetchReadme(client, repo, tag, path)
     of vhBitbucket: result = bitbucketFetchReadme(client, repo, tag, path)
     of vhSourceHut: result = sourcehutFetchReadme(repo, tag, path)
     of vhGenericGit: result = genericGitFetchReadme(repo, tag, path)

@@ -5,7 +5,13 @@
 
 import std/[times, tables, strutils, options]
 import chronicles
-import nsheep/[types, storage, vcs], puppy
+import nsheep/[types, storage, vcs, tarstrip], puppy
+
+proc storeVersionReadme(store: DbStorage, pkgName: PackageName, ver: SemVer, tarballBytes: seq[byte]) =
+  let readme = extractReadmeFromTarball(tarballBytes)
+  if readme.content.len > 0:
+    let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
+    storeReadme(store, pkgName.string, versionStr, readme.filename, readme.content)
 
 # --- Errors ---
 
@@ -53,6 +59,12 @@ proc ingest*(
   ## Ingest a package from GitHub
   ## Raises on any failure - caller handles retry/display
   ## canonicalName: official name from nimble packages.json (not repo name)
+
+  # Detect actual host type for generic git URLs (e.g. self-hosted GitLab/Gitea)
+  let originalHost = repo.host
+  let repo = detectHostType(client, repo)
+  if repo.host != originalHost:
+    info "Detected host type", url = repo.url, fromHost = $originalHost, toHost = $repo.host
 
   info "Starting ingestion", repo = repo.path
 
@@ -126,9 +138,15 @@ proc ingest*(
     if repo.subdir.len > 0:
       tarballBytes = trimTarballToSubdir(tarballBytes, repo, pkgName, rel.tag)
 
+    # Strip non-essential files (tests, docs, CI configs, etc.)
+    tarballBytes = stripTarballBytes(tarballBytes)
+
     # Compute checksum
     # TODO: use std/sha256
     let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+
+    # Extract and store README from tarball
+    storeVersionReadme(store, pkgName, ver, tarballBytes)
 
     # Store version with tarball
     storeVersion(store, pkgName, ver, tarballBytes, checksum, rel.publishedAt)
@@ -169,7 +187,16 @@ proc ingest*(
       if repo.subdir.len > 0:
         tarballBytes = trimTarballToSubdir(tarballBytes, repo, pkgName, rel.tag)
 
+      # Strip non-essential files (tests, docs, CI configs, etc.)
+      tarballBytes = stripTarballBytes(tarballBytes)
+
       let checksum = initChecksum("0" & repeat('0', 63)) # Placeholder
+
+      # Extract and store README from tarball
+      let headReadme = extractReadmeFromTarball(tarballBytes)
+      if headReadme.content.len > 0:
+        storeReadme(store, pkgName.string, "#head", headReadme.filename, headReadme.content)
+
       storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, headSha)
       versions.add(PackageVersion(
         version: headSemVer,
@@ -195,21 +222,6 @@ proc ingest*(
     createdAt: placeholderPkg.createdAt,
     updatedAt: updatedAt
   )
-
-  # 9. Fetch and store READMEs
-  let readmeContent = fetchReadme(client, repo, "HEAD")
-  if readmeContent != "":
-    storeReadme(store, pkg.name.string, "#head", readmeContent)
-
-  for rel in releases:
-    let optVer = parseSemVer(rel.tag)
-    if optVer.isNone:
-      continue
-    let ver = optVer.get()
-    let readmeContent = fetchReadme(client, repo, rel.tag)
-    if readmeContent != "":
-      let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
-      storeReadme(store, pkg.name.string, versionStr, readmeContent)
 
   touchPackage(store, pkg.name)
   info "Ingestion complete", package = $pkg.name, versions = pkg.versions.len

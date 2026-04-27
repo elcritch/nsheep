@@ -97,6 +97,7 @@ var
   copyFeedback = ""
   darkMode = false
   readmeContent = ""
+  readmeFilename = ""
   totalDownloads = 0
   displayedCount = 0
   searchTimer: JsObject = nil
@@ -312,8 +313,9 @@ proc fetchValidations(name: string) =
     redraw()
 
 proc fetchReadme(name: string) =
-  fetchText(cstring("/api/v1/packages/" & name & "/readme")) do (text: string):
-    readmeContent = text
+  fetchJson(cstring("/api/v1/packages/" & name & "/readme")) do (data: JsonNode):
+    readmeFilename = $data["filename"].getStr()
+    readmeContent = $data["content"].getStr()
     redraw()
 
 proc fetchDownloads(name: string) =
@@ -554,7 +556,8 @@ proc renderHome(): VNode =
   buildHtml(tdiv(class = "page home")):
     tdiv(class = "search-wrap"):
       tdiv(class = "search-box"):
-        input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…", value = cstring(searchQuery)):
+        input(class = "search", id = "search-input", `type` = "text", placeholder = "Search packages…",
+            value = cstring(searchQuery)):
           proc oninput(ev: Event; target: VNode) = onSearchInput(ev, target)
           proc onkeydown(ev: Event; target: VNode) =
             let k = cast[KeyboardEvent](ev)
@@ -785,7 +788,7 @@ proc renderPackage(): VNode =
             if vstatus != "":
               span(class = cstring("validation-badge " & vclass)): text vstatus
             a(
-              href = cstring("/download/" & detail.name & "/" & v.version),
+              href = cstring("/download/" & detail.name & "/" & v.version.replace("#", "")),
               class = "download-link",
               download = ""
             ): text "Download"
@@ -980,16 +983,28 @@ proc postRender() =
   if readmeContent != "":
     let el = kdom.document.getElementById(cstring"readme-content")
     if el != nil:
-      let marked = cast[JsObject](kdom.window)["marked"]
+      let lowerName = readmeFilename.toLowerAscii()
+      let isMarkdown = lowerName.endsWith(".md") or lowerName.endsWith(".markdown") or
+                       lowerName.endsWith(".mkd") or lowerName.endsWith(".mdown")
       let purify = cast[JsObject](kdom.window)["DOMPurify"]
-      if marked != nil and purify != nil:
-        let rawHtml = marked.parse(cstring(readmeContent))
-        let safeHtml = purify.sanitize(rawHtml)
-        cast[JsObject](el)["innerHTML"] = safeHtml
 
-        let prism = cast[JsObject](kdom.window)["Prism"]
-        if prism != nil:
-          discard prism.highlightAllUnder(el)
+      if isMarkdown:
+        let marked = cast[JsObject](kdom.window)["marked"]
+        if marked != nil and purify != nil:
+          let rawHtml = marked.parse(cstring(readmeContent))
+          let safeHtml = purify.sanitize(rawHtml)
+          cast[JsObject](el)["innerHTML"] = safeHtml
+          let prism = cast[JsObject](kdom.window)["Prism"]
+          if prism != nil:
+            discard prism.highlightAllUnder(el)
+      else:
+        # Plain text / RST / unknown format — render as preformatted text
+        let escaped = readmeContent.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        let note = if lowerName.endsWith(".rst"):
+          "<p class=\"readme-note\">Note: reStructuredText rendering is not fully supported. Displaying as plain text.</p>"
+        else:
+          ""
+        cast[JsObject](el)["innerHTML"] = cstring(note & "<pre class=\"readme-plain\"><code>" & escaped & "</code></pre>")
 
 proc render(): VNode =
   buildHtml(tdiv(class = "app")):

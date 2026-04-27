@@ -378,11 +378,24 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
       error "Failed to record download", package = nameStr, version = versionStr, error = e.msg
 
     # Load tarball
-    let data = try:
-      loadTarball(state.store, name, version, refName)
+    var data: seq[byte]
+    try:
+      data = loadTarball(state.store, name, version, refName)
     except storage.NotFoundError:
-      sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
-      return
+      # Fallback: if semver not found, try HEAD version
+      # (Many packages are stored as HEAD even though their .nimble has a semver)
+      if refName.len == 0:
+        try:
+          data = loadTarball(state.store, name, initSemVer(0, 0, 0), "head")
+        except storage.NotFoundError:
+          sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
+          return
+        except storage.StorageError as e:
+          sendError(request, 500, "storage_error", e.msg)
+          return
+      else:
+        sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
+        return
     except storage.StorageError as e:
       sendError(request, 500, "storage_error", e.msg)
       return

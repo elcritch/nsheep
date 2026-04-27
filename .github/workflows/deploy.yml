@@ -44,6 +44,7 @@ jobs:
           source: "nsheep,nsheep-fetcher"
           target: "/opt/nsheep/"
           strip_components: 0
+          debug: true
 
       - name: Upload static files
         uses: appleboy/scp-action@v0.1.7

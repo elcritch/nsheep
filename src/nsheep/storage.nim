@@ -432,8 +432,10 @@ proc loadTarball*(
     s.db.one("""
       SELECT tarball_path FROM versions v
       JOIN packages p ON v.package_id = p.id
-      WHERE p.name = ? AND v.head_commit = ?
-    """, pkgName.string, headCommit)
+      WHERE p.name = ? AND v.head_commit IS NOT NULL
+      ORDER BY v.major DESC, v.minor DESC, v.patch DESC
+      LIMIT 1
+    """, pkgName.string)
   else:
     s.db.one("""
       SELECT tarball_path FROM versions v

@@ -15,7 +15,8 @@ nimble.paths
 # Nim
 nimcache/
 *.nim.log
-*.nims
+nim.cfg
+/deps/
 
 # Data
 data/

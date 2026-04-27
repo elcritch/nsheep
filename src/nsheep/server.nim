@@ -73,10 +73,9 @@ proc handlePackagesJson(state: ptr ServerState): RequestHandler =
       for t in s.tags:
         tags.add( % t)
 
-      let urlVersion = if s.latestVersion == "#head": "head" else: s.latestVersion
       arr.add(%*{
         "name": s.name,
-        "url": pubUrl & "/download/" & s.name & "/" & urlVersion,
+        "url": pubUrl & "/download/" & s.name,
         "method": "http",
         "description": s.description,
         "license": s.license,

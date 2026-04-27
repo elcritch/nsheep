@@ -362,18 +362,15 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
       sendError(request, 400, "invalid_name", e.msg)
       return
 
-    # Parse version (semver or #head)
+    # Parse version (semver or branch/ref like head, main, etc.)
     var version: SemVer
     var headCommit = ""
-    if versionStr == "#head" or versionStr == "head":
-      headCommit = "#head"
-      version = initSemVer(0, 0, 0)
-    else:
-      let optVer = parseSemVer(versionStr)
-      if optVer.isNone:
-        sendError(request, 400, "invalid_version", "expected semver or #head: " & versionStr)
-        return
+    let optVer = parseSemVer(versionStr)
+    if optVer.isSome:
       version = optVer.get()
+    else:
+      headCommit = versionStr
+      version = initSemVer(0, 0, 0)
 
     # Record download
     try:

@@ -444,7 +444,7 @@ proc loadTarball*(
     """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
 
   if row.isNone:
-    let verStr = if headCommit.len > 0: "#head" else: $ver.major & "." & $ver.minor & "." & $ver.patch
+    let verStr = if headCommit.len > 0: headCommit else: $ver.major & "." & $ver.minor & "." & $ver.patch
     raise newException(NotFoundError, "version not found: " & $pkgName & "@" & verStr)
 
   let tarPath = row.get()[0].strVal

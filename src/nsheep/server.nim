@@ -364,12 +364,12 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
 
     # Parse version (semver or branch/ref like head, main, etc.)
     var version: SemVer
-    var headCommit = ""
+    var refName = ""
     let optVer = parseSemVer(versionStr)
     if optVer.isSome:
       version = optVer.get()
     else:
-      headCommit = versionStr
+      refName = versionStr
       version = initSemVer(0, 0, 0)
 
     # Record download
@@ -380,7 +380,7 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
 
     # Load tarball
     let data = try:
-      loadTarball(state.store, name, version, headCommit)
+      loadTarball(state.store, name, version, refName)
     except storage.NotFoundError:
       sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
       return

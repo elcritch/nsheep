@@ -206,12 +206,12 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     ORDER BY major DESC, minor DESC, patch DESC
   """, name.string):
     let ver = initSemVer(vrow[0].intVal.int, vrow[1].intVal.int, vrow[2].intVal.int)
-    let headCommit = if vrow[3].kind == sqliteNull: "" else: vrow[3].strVal
+    let refName = if vrow[3].kind == sqliteNull: "" else: vrow[3].strVal
     let checksum = initChecksum(vrow[6].strVal)
     let publishedAt = if vrow[7].kind == sqliteNull: now() else: fromUnix(vrow[7].intVal).local()
     result.versions.add(PackageVersion(
       version: ver,
-      headCommit: headCommit,
+      headCommit: refName,
       tarballPath: vrow[4].strVal,
       checksum: checksum,
       size: vrow[5].intVal,
@@ -263,8 +263,8 @@ proc listPackageSummaries*(s: DbStorage): seq[PackageSummary] =
 
     var latestVersion = ""
     if row[8].kind != sqliteNull:
-      let headCommit = if row[11].kind == sqliteNull: "" else: row[11].strVal
-      if headCommit.len > 0:
+      let refName = if row[11].kind == sqliteNull: "" else: row[11].strVal
+      if refName.len > 0:
         latestVersion = "#head"
       else:
         latestVersion = $row[8].intVal & "." & $row[9].intVal & "." & $row[10].intVal
@@ -322,8 +322,8 @@ proc listPackageSummariesPaged*(s: DbStorage, offset, limit: int,
 
     var latestVersion = ""
     if row[8].kind != sqliteNull:
-      let headCommit = if row[11].kind == sqliteNull: "" else: row[11].strVal
-      if headCommit.len > 0:
+      let refName = if row[11].kind == sqliteNull: "" else: row[11].strVal
+      if refName.len > 0:
         latestVersion = "#head"
       else:
         latestVersion = $row[8].intVal & "." & $row[9].intVal & "." & $row[10].intVal
@@ -361,9 +361,9 @@ proc countPackages*(s: DbStorage, search: string = "",
 
 # --- Version/Tarball Operations ---
 
-proc tarballPath*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit: string = ""): string =
+proc tarballPath*(s: DbStorage, pkgName: PackageName, ver: SemVer, refName: string = ""): string =
   ## Get filesystem path for tarball
-  let versionStr = if headCommit.len > 0: "#head" else: $ver.major & "." & $ver.minor & "." & $ver.patch
+  let versionStr = if refName.len > 0: "#head" else: $ver.major & "." & $ver.minor & "." & $ver.patch
   s.tarballDir / $pkgName & "-" & versionStr & ".tar.gz"
 
 proc storeVersion*(
@@ -373,7 +373,7 @@ proc storeVersion*(
   tarball: seq[byte],
   checksum: Checksum,
   publishedAt: DateTime,
-  headCommit: string = ""
+  refName: string = ""
 ) =
   ## Store a version - tarball to filesystem, metadata to SQLite
   # Get package id
@@ -384,7 +384,7 @@ proc storeVersion*(
   let pkgId = pkgRow.get()[0].intVal
 
   # Write tarball to filesystem
-  let tarPath = s.tarballPath(pkgName, ver, headCommit)
+  let tarPath = s.tarballPath(pkgName, ver, refName)
   createDir(tarPath.parentDir)
 
   var f: File
@@ -396,7 +396,7 @@ proc storeVersion*(
     raise newException(StorageError, "cannot write tarball: " & tarPath)
 
   # Store metadata in SQLite
-  if headCommit.len > 0:
+  if refName.len > 0:
     s.db.exec("""
       INSERT INTO versions (package_id, major, minor, patch, head_commit, tarball_path, tarball_size, checksum, published_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
@@ -406,7 +406,7 @@ proc storeVersion*(
         checksum = excluded.checksum,
         published_at = excluded.published_at,
         updated_at = unixepoch()
-    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, headCommit, tarPath, tarball.len.int64, $checksum,
+    """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64, refName, tarPath, tarball.len.int64, $checksum,
         publishedAt.toTime.toUnix)
   else:
     s.db.exec("""
@@ -425,10 +425,10 @@ proc loadTarball*(
   s: DbStorage,
   pkgName: PackageName,
   ver: SemVer,
-  headCommit: string = ""
+  refName: string = ""
 ): seq[byte] =
   ## Load tarball bytes from filesystem
-  let row = if headCommit.len > 0:
+  let row = if refName.len > 0:
     s.db.one("""
       SELECT tarball_path FROM versions v
       JOIN packages p ON v.package_id = p.id
@@ -444,7 +444,7 @@ proc loadTarball*(
     """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
 
   if row.isNone:
-    let verStr = if headCommit.len > 0: headCommit else: $ver.major & "." & $ver.minor & "." & $ver.patch
+    let verStr = if refName.len > 0: refName else: $ver.major & "." & $ver.minor & "." & $ver.patch
     raise newException(NotFoundError, "version not found: " & $pkgName & "@" & verStr)
 
   let tarPath = row.get()[0].strVal
@@ -462,14 +462,14 @@ proc loadTarball*(
   else:
     raise newException(StorageError, "cannot read tarball: " & tarPath)
 
-proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, headCommit: string = ""): bool =
+proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, refName: string = ""): bool =
   ## Check if version exists
-  let row = if headCommit.len > 0:
+  let row = if refName.len > 0:
     s.db.one("""
       SELECT 1 FROM versions v
       JOIN packages p ON v.package_id = p.id
       WHERE p.name = ? AND v.head_commit = ?
-    """, pkgName.string, headCommit)
+    """, pkgName.string, refName)
   else:
     s.db.one("""
       SELECT 1 FROM versions v

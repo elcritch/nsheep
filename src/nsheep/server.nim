@@ -76,7 +76,7 @@ proc handlePackagesJson(state: ptr ServerState): RequestHandler =
       arr.add(%*{
         "name": s.name,
         "url": pubUrl & "/download/" & s.name & "/" & s.latestVersion,
-        "method": "download",
+        "method": "http",
         "description": s.description,
         "license": s.license,
         "tags": tags,

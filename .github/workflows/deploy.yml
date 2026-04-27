@@ -35,35 +35,33 @@ jobs:
       - name: Build frontend
         run: nim js -d:release -o:public/app.js frontend/app.nim
 
-      - name: Debug SSH key fingerprint
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/key
-          chmod 600 /tmp/key
-          ssh-keygen -y -f /tmp/key > /tmp/key.pub 2>&1 || echo "Failed to extract public key"
-          ssh-keygen -lf /tmp/key.pub 2>/dev/null || echo "Failed to get fingerprint"
-
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Upload binaries
+        uses: appleboy/scp-action@v1
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          log-public-key: false
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "nsheep,nsheep-fetcher"
+          target: "/opt/nsheep/"
+          strip_components: 0
 
-      - name: Deploy binaries and static files
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_HOST $(ssh-keyscan -H $SSH_HOST 2>/dev/null | grep -oE 'ssh-ed25519 [^ ]+')" >> ~/.ssh/known_hosts 2>/dev/null || true
-          scp -o StrictHostKeyChecking=accept-new nsheep nsheep-fetcher $SSH_USER@$SSH_HOST:/opt/nsheep/
-          scp -r -o StrictHostKeyChecking=accept-new public/* $SSH_USER@$SSH_HOST:/opt/nsheep/public/
+      - name: Upload static files
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "public/*"
+          target: "/opt/nsheep/public/"
+          strip_components: 1
 
       - name: Restart services
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-        run: |
-          ssh -o StrictHostKeyChecking=accept-new $SSH_USER@$SSH_HOST "
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
             cd /opt/nsheep
             chmod +x nsheep nsheep-fetcher
             sudo rc-service nsheep restart
@@ -71,4 +69,3 @@ jobs:
             sleep 2
             sudo rc-service nsheep status || exit 1
             sudo rc-service nsheep-fetcher status || exit 1
-          "

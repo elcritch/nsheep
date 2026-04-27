@@ -1,6 +1,6 @@
 # NimPack
 
-A centralized Nim package registry with strict engineering standards. Hosted at [nimpack.org](https://nimpack.org).
+A centralized Nim package registry. Hosted at [nimpack.org](https://nimpack.org).
 
 ## Architecture
 

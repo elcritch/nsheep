@@ -1,20 +1,27 @@
 # Build stage
-FROM nimlang/nim:2.0.0-alpine AS builder
+FROM nimlang/nim:2.2.0-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
-RUN apk add --no-cache git openssl-dev pcre-dev
+# Install build dependencies
+RUN apk add --no-cache git openssl-dev pcre-dev nodejs npm
 
 # Copy project files
 COPY nsheep.nimble .
-COPY cfg.example.yaml .
+COPY nimble.paths .
+COPY config.nims .
 COPY src/ ./src/
+COPY frontend/ ./frontend/
 
-# Install dependencies and build
+# Install dependencies
 RUN nimble install -y --depsOnly
-RUN nim c -d:release -o:nsheep src/nsheep.nim
-RUN nim c -d:release -o:nsheep-fetcher src/nsheep_fetcher.nim
+
+# Build binaries
+RUN nimble build -d:release -d:strip
+
+# Build frontend
+RUN nim js -d:release -o:public/app.js frontend/app.nim
+RUN cp frontend/index.html public/ && cp frontend/app.css public/
 
 # Runtime stage
 FROM alpine:latest
@@ -22,11 +29,17 @@ FROM alpine:latest
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache openssl pcre libgcc git docker-cli
+RUN apk add --no-cache openssl pcre libgcc libstdc++ git docker-cli
 
 # Copy binaries
 COPY --from=builder /app/nsheep .
 COPY --from=builder /app/nsheep-fetcher .
+
+# Copy static files
+COPY --from=builder /app/public ./public
+
+# Copy default config
+COPY --from=builder /app/cfg.example.yaml ./cfg.yaml
 
 # Create data directories
 RUN mkdir -p /app/data/tarballs
@@ -38,5 +51,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Default command (can be overridden)
+# Default command
 CMD ["./nsheep", "/app/cfg.yaml"]

@@ -8,6 +8,7 @@ RUN apk add --no-cache git openssl-dev pcre-dev nodejs npm
 
 # Copy project files
 COPY nsheep.nimble .
+COPY config.nims .
 COPY src/ ./src/
 COPY frontend/ ./frontend/
 

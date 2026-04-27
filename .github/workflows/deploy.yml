@@ -36,7 +36,7 @@ jobs:
         run: nim js -d:release -o:public/app.js frontend/app.nim
 
       - name: Upload binaries
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -47,7 +47,7 @@ jobs:
           debug: true
 
       - name: Upload static files
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -57,7 +57,7 @@ jobs:
           strip_components: 1
 
       - name: Restart services
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}

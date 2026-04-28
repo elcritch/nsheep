@@ -35,6 +35,13 @@ jobs:
       - name: Build frontend
         run: nim js -d:release -o:public/app.js frontend/app.nim
 
+      - name: Verify SSH secrets exist
+        run: |
+          if [ -z "${{ secrets.SSH_HOST }}" ]; then echo "SSH_HOST is empty"; exit 1; fi
+          if [ -z "${{ secrets.SSH_USER }}" ]; then echo "SSH_USER is empty"; exit 1; fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then echo "SSH_PRIVATE_KEY is empty"; exit 1; fi
+          echo "All SSH secrets are set"
+
       - name: Upload binaries
         uses: appleboy/scp-action@v1
         with:

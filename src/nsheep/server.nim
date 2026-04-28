@@ -13,7 +13,10 @@ import nsheep/[types, storage, config]
 type
   ServerState* = object
     cfg*: Config
-    store*: DbStorage
+
+proc openStore(state: ptr ServerState): DbStorage =
+  ## Each request gets its own DB connection — SQLite connections are NOT thread-safe.
+  initStorage(state.cfg.local.dbPath, state.cfg.local.tarballDir)
 
 # --- Helpers ---
 
@@ -61,7 +64,9 @@ proc baseUrl(state: ptr ServerState, request: Request): string =
 
 proc handlePackagesJson(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
-    let summaries = listPackageSummaries(state.store)
+    let store = openStore(state)
+    defer: store.close()
+    let summaries = listPackageSummaries(store)
     let pubUrl = baseUrl(state, request)
 
     var arr = newJArray()
@@ -101,6 +106,8 @@ proc handleHealth(state: ptr ServerState): RequestHandler =
 
 proc handleGetPackage(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
+    let store = openStore(state)
+    defer: store.close()
     let nameStr = request.pathParams["name"]
 
     # Validate name
@@ -112,7 +119,7 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
 
     # Load from storage
     let pkg = try:
-      loadPackage(state.store, name)
+      loadPackage(store, name)
     except storage.NotFoundError:
       sendError(request, 404, "not_found", "package not found: " & nameStr)
       return
@@ -145,6 +152,8 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
 
 proc handleListPackages(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
+    let store = openStore(state)
+    defer: store.close()
     var page = 1
     var limit = 50
     var sort = "updated_desc"
@@ -181,8 +190,8 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
 
     let offset = (page - 1) * limit
 
-    let summaries = listPackageSummariesPaged(state.store, offset, limit, sort, search, author, tag)
-    let total = countPackages(state.store, search, author, tag)
+    let summaries = listPackageSummariesPaged(store, offset, limit, sort, search, author, tag)
+    let total = countPackages(store, search, author, tag)
 
     var arr = newJArray()
     for s in summaries:
@@ -213,6 +222,8 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
 
 proc handleValidations(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
+    let store = openStore(state)
+    defer: store.close()
     let nameStr = request.pathParams["name"]
 
     # Parse name
@@ -223,7 +234,7 @@ proc handleValidations(state: ptr ServerState): RequestHandler =
       return
 
     # Load validations
-    let results = getLatestValidationResults(state.store, nameStr)
+    let results = getLatestValidationResults(store, nameStr)
 
     var arr = newJArray()
     for r in results:
@@ -237,6 +248,8 @@ proc handleValidations(state: ptr ServerState): RequestHandler =
 
 proc handleReadme(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
+    let store = openStore(state)
+    defer: store.close()
     let nameStr = request.pathParams["name"]
 
     # Parse name
@@ -248,7 +261,7 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
 
     # Load package
     let pkg = try:
-      loadPackage(state.store, name)
+      loadPackage(store, name)
     except storage.NotFoundError:
       sendError(request, 404, "not_found", "package not found: " & nameStr)
       return
@@ -270,7 +283,7 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
 
     # Load README from storage
     let readmeData = try:
-      loadReadme(state.store, nameStr, versionStr)
+      loadReadme(store, nameStr, versionStr)
     except storage.NotFoundError:
       sendError(request, 404, "not_found", "readme not found for version: " & versionStr)
       return
@@ -290,6 +303,8 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
 
 proc handleDownloads(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
+    let store = openStore(state)
+    defer: store.close()
     let nameStr = request.pathParams["name"]
 
     # Parse name
@@ -300,7 +315,7 @@ proc handleDownloads(state: ptr ServerState): RequestHandler =
       return
 
     # Load download stats
-    let stats = getDownloadStats(state.store, name.string)
+    let stats = getDownloadStats(store, name.string)
 
     var arr = newJArray()
     for s in stats:
@@ -313,12 +328,14 @@ proc handleDownloads(state: ptr ServerState): RequestHandler =
 
 proc handleStats(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
-    let stats = getPackageStats(state.store)
-    let topDownloaded = getTopPackagesByDownloads(state.store, 10)
-    let topAuthors = getTopAuthors(state.store, 10)
-    let licenses = getLicenseDistribution(state.store)
-    let hosts = getHostDistribution(state.store)
-    let topTags = getTopTags(state.store, 20)
+    let store = openStore(state)
+    defer: store.close()
+    let stats = getPackageStats(store)
+    let topDownloaded = getTopPackagesByDownloads(store, 10)
+    let topAuthors = getTopAuthors(store, 10)
+    let licenses = getLicenseDistribution(store)
+    let hosts = getHostDistribution(store)
+    let topTags = getTopTags(store, 20)
 
     var topDlJson = newJArray()
     for p in topDownloaded:
@@ -361,6 +378,8 @@ proc handleStats(state: ptr ServerState): RequestHandler =
 
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
+    let store = openStore(state)
+    defer: store.close()
     let nameStr = request.pathParams["name"]
     let versionStr = request.pathParams["version"]
 
@@ -383,13 +402,13 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
 
     # Record download
     try:
-      recordDownload(state.store, nameStr, versionStr)
+      recordDownload(store, nameStr, versionStr)
     except storage.StorageError as e:
       error "Failed to record download", package = nameStr, version = versionStr, error = e.msg
 
     # Look up tarball path
     let tarPath = try:
-      getTarballPath(state.store, name, version, refName)
+      getTarballPath(store, name, version, refName)
     except storage.NotFoundError:
       sendError(request, 404, "not_found", "tarball not found: " & nameStr & "@" & versionStr)
       return
@@ -481,12 +500,6 @@ proc runServer*(cfg: Config) =
   # Initialize state
   var state: ServerState
   state.cfg = cfg
-
-  case cfg.storage
-  of sbLocal:
-    state.store = initStorage(cfg.local.dbPath, cfg.local.tarballDir)
-  of sbCloudflare:
-    raise newException(ValueError, "Cloudflare storage not yet implemented")
 
   discard
 

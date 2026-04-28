@@ -30,7 +30,7 @@ jobs:
         run: nimble install -y --depsOnly
 
       - name: Build release binaries
-        run: nimble build -d:release -d:strip
+        run: nimble build -d:release -d:strip --passC:-march=x86-64
 
       - name: Build frontend
         run: nim js -d:release -o:public/app.js frontend/app.nim

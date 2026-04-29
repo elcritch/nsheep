@@ -16,7 +16,8 @@ type
 
 proc openStore(state: ptr ServerState): DbStorage =
   ## Each request gets its own DB connection — SQLite connections are NOT thread-safe.
-  initStorage(state.cfg.local.dbPath, state.cfg.local.tarballDir)
+  ## Uses openStorage (not initStorage) to avoid schema creation on every request.
+  openStorage(state.cfg.local.dbPath, state.cfg.local.tarballDir)
 
 # --- Helpers ---
 

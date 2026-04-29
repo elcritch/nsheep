@@ -107,7 +107,7 @@ type
 # --- Initialization ---
 
 proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
-  ## Initialize SQLite storage + filesystem tarball storage
+  ## Initialize SQLite storage + filesystem tarball storage (run once at startup)
   result.dbPath = dbPath
   result.tarballDir = tarballDir
   result.db = openDatabase(dbPath)
@@ -133,6 +133,14 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
   createDir(tarballDir)
 
   info "Storage initialized", dbPath = dbPath, tarballDir = tarballDir
+
+proc openStorage*(dbPath: string, tarballDir: string): DbStorage =
+  ## Open an existing SQLite storage connection (for per-request use).
+  ## Does NOT run schema creation — assumes initStorage was already called.
+  result.dbPath = dbPath
+  result.tarballDir = tarballDir
+  result.db = openDatabase(dbPath)
+  result.db.exec("PRAGMA busy_timeout = 10000")
 
 proc close*(s: DbStorage) =
   ## Close database connection

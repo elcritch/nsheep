@@ -15,6 +15,8 @@ type
     description: string
     author: string
     latestVersion: string
+    createdAt: int
+    updatedAt: int
     latestVersionPublishedAt: int
     tags: seq[string]
 
@@ -248,6 +250,8 @@ proc fetchSummaries(page: int = 1) =
           description: if item.hasField("description"): $item["description"].getStr() else: "",
           author: if item.hasField("author"): $item["author"].getStr() else: "",
           latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+          createdAt: if item.hasField("createdAt"): item["createdAt"].getInt() else: 0,
+          updatedAt: if item.hasField("updatedAt"): item["updatedAt"].getInt() else: 0,
           latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): item[
               "latestVersionPublishedAt"].getInt() else: 0,
           tags: if item.hasField("tags"):
@@ -283,6 +287,8 @@ proc fetchSearchSuggestions(q: string) =
           description: if item.hasField("description"): $item["description"].getStr() else: "",
           author: if item.hasField("author"): $item["author"].getStr() else: "",
           latestVersion: if item.hasField("latestVersion"): $item["latestVersion"].getStr() else: "",
+          createdAt: if item.hasField("createdAt"): item["createdAt"].getInt() else: 0,
+          updatedAt: if item.hasField("updatedAt"): item["updatedAt"].getInt() else: 0,
           latestVersionPublishedAt: if item.hasField("latestVersionPublishedAt"): item[
               "latestVersionPublishedAt"].getInt() else: 0,
           tags: if item.hasField("tags"):
@@ -424,10 +430,10 @@ proc sortFiltered() =
   case currentSort
   of soPublishedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
+      cmp(b.createdAt, a.createdAt)
   of soUpdatedDesc:
     algorithm.sort(filtered) do (a, b: PackageSummary) -> int:
-      cmp(b.latestVersionPublishedAt, a.latestVersionPublishedAt)
+      cmp(b.updatedAt, a.updatedAt)
 
 proc applyFilters() =
   filtered = summaries

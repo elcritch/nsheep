@@ -451,6 +451,7 @@ proc serveStaticFile(state: ptr ServerState, fileName: string): RequestHandler =
     of ".css": "text/css"
     of ".html": "text/html"
     of ".txt": "text/plain; charset=utf-8"
+    of ".svg": "image/svg+xml"
     else: "application/octet-stream"
 
     let data = readFile(filePath)
@@ -481,6 +482,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/llm.txt", serveStaticFile(state, "llm.txt"))
   router.get("/app.js", serveStaticFile(state, "app.js"))
   router.get("/app.css", serveStaticFile(state, "app.css"))
+  router.get("/robot.svg", serveStaticFile(state, "robot.svg"))
 
   # SPA catch-all: serve index.html for any non-API route
   router.get("/**", serveIndex(state))

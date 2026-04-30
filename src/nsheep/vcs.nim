@@ -31,7 +31,7 @@ type
     tag*: string
     tarballUrl*: string
     publishedAt*: DateTime
-    commitSha*: string  ## Git commit SHA for this version (HEAD or tag)
+    commitSha*: string ## Git commit SHA for this version (HEAD or tag)
 
   VcsError* = object of CatchableError
   VcsNotFoundError* = object of VcsError
@@ -711,8 +711,8 @@ proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   let repoName = repo.path.split('/')[^1]
   let cloneDir = tempDir / repoName
 
-  let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
-      cloneDir.quoteShell & " 2>&1"
+  let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell &
+      " " &cloneDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
     raise newException(VcsError, "git clone failed: " & cloneOut)
@@ -811,8 +811,8 @@ proc genericGitFetchFile*(repo: RepoRef, tag, filename: string): Option[string] 
   let tempDir = createTempDir("nsheep", "gitfile")
   defer: removeDir(tempDir)
 
-  let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell & " " &
-      tempDir.quoteShell & " 2>&1"
+  let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell &
+      " " &tempDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
     return none(string)
@@ -853,6 +853,7 @@ proc sourcehutFetchReadme(repo: RepoRef, tag, path: string): string =
 
 proc fetchRepoMeta*(client: VcsClient, repo: RepoRef): (string, DateTime) =
   ## Fetch repository description and last-updated time.
+  ## Propagates VcsNotFoundError so callers know the repo is deleted/unreachable.
   try:
     case repo.host
     of vhGitHub: result = githubFetchMeta(client, repo)
@@ -861,6 +862,8 @@ proc fetchRepoMeta*(client: VcsClient, repo: RepoRef): (string, DateTime) =
     of vhBitbucket: result = bitbucketFetchMeta(client, repo)
     of vhSourceHut, vhGenericGit:
       result = ("", now())
+  except VcsNotFoundError:
+    raise
   except CatchableError as e:
     warn "VCS metadata fetch failed", host = $repo.host, path = repo.path, error = e.msg
     result = ("", now())

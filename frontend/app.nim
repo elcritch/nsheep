@@ -1017,7 +1017,7 @@ proc render(): VNode =
           a(href = "/stats", class = "nav-link"): text "Stats"
           a(href = "/help", class = "nav-link"): text "Help"
           a(href = "/llm.txt", class = "nav-link"):
-            img(src = cstring"/robot.svg", alt = cstring"llm.txt", width = cstring"16", height = cstring"16", style = cstring"vertical-align:middle;margin-right:4px;")
+            img(src = cstring"/robot.svg", alt = cstring"llm.txt", width = cstring"16", height = cstring"16")
             text "llm.txt"
           a(href = "https://github.com/nim-community/nsheep", class = "github-link", target = cstring"_blank"):
             svg(viewBox = cstring"0 0 16 16", width = cstring"20", height = cstring"20", fill = cstring"currentColor"):

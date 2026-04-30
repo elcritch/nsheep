@@ -121,6 +121,11 @@ a:hover {
   transition: color 0.12s ease-out;
 }
 
+.nav-link img {
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
 .nav-link:hover,
 .nav-link:focus-visible {
   color: var(--accent);

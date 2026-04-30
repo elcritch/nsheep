@@ -194,8 +194,8 @@ proc onLinkClick(ev: Event) =
   let href = $(el.getAttribute("href"))
   if href.len == 0 or not href.startsWith("/"):
     return
-  # Skip API and direct download links
-  if href.startsWith("/api/") or href.startsWith("/download/") or href == "/packages.json":
+  # Skip API, direct download, and static file links
+  if href.startsWith("/api/") or href.startsWith("/download/") or href == "/packages.json" or href == "/llm.txt":
     return
   ev.preventDefault()
   navigateTo(cstring(href))

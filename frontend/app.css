@@ -114,6 +114,8 @@ a:hover {
 }
 
 .nav-link {
+  display: inline-flex;
+  align-items: center;
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -122,7 +124,6 @@ a:hover {
 }
 
 .nav-link img {
-  vertical-align: middle;
   margin-right: 6px;
 }
 

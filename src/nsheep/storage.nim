@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS readmes (
 CREATE TABLE IF NOT EXISTS failed_packages (
     name TEXT PRIMARY KEY,
     failed_at INTEGER DEFAULT (unixepoch()),
-    reason TEXT
+    reason TEXT,
+    url TEXT
 );
 
 -- Indexes
@@ -126,6 +127,10 @@ proc initStorage*(dbPath: string, tarballDir: string): DbStorage =
     discard
   try:
     result.db.exec("ALTER TABLE versions ADD COLUMN updated_at INTEGER DEFAULT (unixepoch())")
+  except CatchableError:
+    discard
+  try:
+    result.db.exec("ALTER TABLE failed_packages ADD COLUMN url TEXT")
   except CatchableError:
     discard
 
@@ -566,15 +571,16 @@ proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int
 
   return false
 
-proc recordFailedPackage*(s: DbStorage, pkgName: string, reason: string = "") =
+proc recordFailedPackage*(s: DbStorage, pkgName: string, reason: string = "", url: string = "") =
   ## Record a permanently failed package so we don't retry it every cycle.
   s.db.exec("""
-    INSERT INTO failed_packages (name, failed_at, reason)
-    VALUES (?, unixepoch(), ?)
+    INSERT INTO failed_packages (name, failed_at, reason, url)
+    VALUES (?, unixepoch(), ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       failed_at = unixepoch(),
-      reason = excluded.reason
-  """, pkgName, reason)
+      reason = excluded.reason,
+      url = excluded.url
+  """, pkgName, reason, url)
 
 # --- Validation Result Operations ---
 

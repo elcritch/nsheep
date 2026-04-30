@@ -97,6 +97,29 @@ proc fetchNimblePackages(): seq[NimblePkg] =
 
   info "Parsed packages", count = result.len
 
+proc classifyFailure(e: ref Exception): string =
+  ## Map exception to a clean failure category using type + msg.
+  if e of VcsNotFoundError:
+    return "repo_not_found"
+  if e of NoVersionsError:
+    return "no_versions"
+  if e of IngestError:
+    return "invalid_nimble"
+  if e of VcsError:
+    let msg = e.msg.toLowerAscii()
+    if msg.contains("clone") or msg.contains("tar "):
+      return "git_error"
+    if msg.contains("invalid json") or msg.contains("expected array"):
+      return "parse_error"
+    if msg.contains("timeout"):
+      return "network_error"
+    if msg.contains("500") or msg.contains("502") or msg.contains("503"):
+      return "server_error"
+    if msg.contains("401") or msg.contains("403"):
+      return "access_denied"
+    return "vcs_error"
+  return "unknown"
+
 proc ingestPackage(fetcher: ptr FetcherData, pkg: NimblePkg): IngestResult =
   ## Ingest a single package
 
@@ -111,7 +134,7 @@ proc ingestPackage(fetcher: ptr FetcherData, pkg: NimblePkg): IngestResult =
       return irSuccess
     except VcsNotFoundError as e:
       warn "Repository not found, giving up", repo = pkg.repo.path, error = e.msg
-      recordFailedPackage(fetcher.store, pkg.name, "repo not found: " & e.msg)
+      recordFailedPackage(fetcher.store, pkg.name, classifyFailure(e), pkg.repo.url)
       return irFailed
     except CatchableError as e:
       warn "Ingest failed", repo = pkg.repo.path, attempt = attempt, error = e.msg
@@ -119,7 +142,7 @@ proc ingestPackage(fetcher: ptr FetcherData, pkg: NimblePkg): IngestResult =
         sleep(1000 * attempt)
 
   error "Ingest failed permanently", repo = pkg.repo.path
-  recordFailedPackage(fetcher.store, pkg.name, "permanent ingest failure")
+  recordFailedPackage(fetcher.store, pkg.name, classifyFailure(getCurrentException()), pkg.repo.url)
   return irFailed
 
 proc shouldFetch(fetcher: ptr FetcherData, pkg: NimblePkg): bool =

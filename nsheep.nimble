@@ -23,6 +23,7 @@ task frontend, "Build frontend assets":
   exec "nim js -d:release -o:public/app.js frontend/app.nim"
   exec "cp frontend/index.html public/"
   exec "cp frontend/app.css public/"
+  exec "cp frontend/robot.svg public/"
 
 task test, "Run tests":
   exec "nim c -r tests/test_tags.nim"

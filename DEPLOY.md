@@ -73,37 +73,31 @@ EOF
 
 ### 4. Configure Nginx
 
-```nginx
-# /etc/nginx/http.d/nsheep.conf (Alpine)
-# or /etc/nginx/sites-available/nsheep (Debian/Ubuntu)
+Copy the production nginx config from the repo:
 
-server {
-    listen 80;
-    server_name nimpack.org;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        client_max_body_size 100M;
-    }
-}
-```
-
-Enable:
 ```bash
 # Alpine
-rc-service nginx restart
+mkdir -p /etc/nginx/http.d
+cp scripts/nginx.conf /etc/nginx/http.d/nsheep.conf
+
+# Edit domain and SSL paths if needed
+vi /etc/nginx/http.d/nsheep.conf
+
+nginx -t && rc-service nginx restart
 
 # Or Debian/Ubuntu
-ln -s /etc/nginx/sites-available/nsheep /etc/nginx/sites-enabled/
+mkdir -p /etc/nginx/sites-available
+cp scripts/nginx.conf /etc/nginx/sites-available/nsheep
+ln -sf /etc/nginx/sites-available/nsheep /etc/nginx/sites-enabled/
 nginx -t && systemctl restart nginx
 ```
 
-HTTPS is handled automatically by Cloudflare (if orange cloud is enabled).
+The config includes:
+- **Static assets** (`/app.js`, `/app.css`, `/robot.svg`) served directly by nginx with `immutable` caching.
+- **SPA shell** (`/`) cached with `max-age=0, must-revalidate` — browsers revalidate via `Last-Modified`, getting `304 Not Modified` when unchanged.
+- **API + dynamic routes** proxied to Mummy on port 8080.
+- **SSL** via Let's Encrypt (managed by certbot).
+- **HTTP→HTTPS redirect** on port 80.
 
 ### 5. Configure OpenRC Services (Alpine)
 

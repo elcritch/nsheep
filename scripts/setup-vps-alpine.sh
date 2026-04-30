@@ -157,35 +157,20 @@ echo "[9/9] Configuring nginx..."
 mkdir -p /etc/nginx/http.d
 rm -f /etc/nginx/http.d/default.conf
 
-if [ -n "$DOMAIN" ]; then
-  cat > /etc/nginx/http.d/nsheep.conf << EOF
-server {
-    listen 80;
-    server_name $DOMAIN;
-    return 301 https://\$server_name\$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name $DOMAIN;
-
-    client_max_body_size 100M;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-EOF
+# Use production nginx config from repo
+if [ -f "$NSHEEP_DIR/scripts/nginx.conf" ]; then
+  cp "$NSHEEP_DIR/scripts/nginx.conf" /etc/nginx/http.d/nsheep.conf
+  # Update domain and SSL paths if a custom domain is provided
+  if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "nimpack.org" ]; then
+    sed -i "s/nimpack.org/$DOMAIN/g" /etc/nginx/http.d/nsheep.conf
+    sed -i "s|/etc/letsencrypt/live/nimpack.org|/etc/letsencrypt/live/$DOMAIN|g" /etc/nginx/http.d/nsheep.conf
+  fi
 else
+  echo "Warning: scripts/nginx.conf not found. Falling back to basic proxy config."
   cat > /etc/nginx/http.d/nsheep.conf << EOF
 server {
     listen 80;
-    server_name $IP;
+    server_name ${DOMAIN:-$IP};
 
     client_max_body_size 100M;
 

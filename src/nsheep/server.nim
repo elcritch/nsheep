@@ -145,8 +145,7 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
       "license": pkg.license,
       "url": pkg.url,
       "tags": pkg.tags,
-      "versions": versionsJson,
-      "updatedAt": pkg.updatedAt.toTime.toUnix
+      "versions": versionsJson
     }
 
     sendJson(request, body, cacheSeconds = 3600) # 1 hour cache
@@ -207,8 +206,6 @@ proc handleListPackages(state: ptr ServerState): RequestHandler =
         "url": s.url,
         "tags": tags,
         "latestVersion": s.latestVersion,
-        "createdAt": s.createdAt,
-        "updatedAt": s.updatedAt,
         "latestVersionPublishedAt": s.latestVersionPublishedAt
       })
 

@@ -450,6 +450,7 @@ proc serveStaticFile(state: ptr ServerState, fileName: string): RequestHandler =
     of ".js": "application/javascript"
     of ".css": "text/css"
     of ".html": "text/html"
+    of ".txt": "text/plain; charset=utf-8"
     else: "application/octet-stream"
 
     let data = readFile(filePath)

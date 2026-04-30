@@ -65,7 +65,11 @@ proc initSemVer*(major, minor, patch: int): SemVer {.raises: [ValueError].} =
 
 proc parseSemVer*(s: string): Option[SemVer] =
   ## Parse semver string - no guessing, no partial matches
-  let parts = s.split('.')
+  ## Strips optional leading 'v' or 'V' prefix (e.g., "v1.2.3" -> "1.2.3")
+  var clean = s
+  if clean.len > 0 and clean[0] in {'v', 'V'}:
+    clean = clean[1..^1]
+  let parts = clean.split('.')
   if parts.len != 3:
     return none(SemVer)
 

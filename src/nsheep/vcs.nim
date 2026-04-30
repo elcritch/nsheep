@@ -479,9 +479,20 @@ proc giteaFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
       continue
     let tag = item["name"].getStr()
     let tarballUrl = hostBaseUrl(repo) & "/" & repo.path & "/archive/" & tag & ".tar.gz"
-    let publishedAt = if item.hasKey("commit") and item["commit"].hasKey("timestamp"):
-      try: parse(item["commit"]["timestamp"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
-      else: now()
+    var publishedAt = now()
+    if item.hasKey("commit"):
+      let commit = item["commit"]
+      let dateStr = if commit.hasKey("timestamp"):
+        commit["timestamp"].getStr()
+      elif commit.hasKey("created"):
+        commit["created"].getStr()
+      else:
+        ""
+      if dateStr.len > 0:
+        try:
+          publishedAt = parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss'Z'")
+        except:
+          publishedAt = now()
 
     result.add(VersionInfo(tag: tag, tarballUrl: tarballUrl, publishedAt: publishedAt))
 

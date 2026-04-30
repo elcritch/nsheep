@@ -259,6 +259,30 @@ proc makeRequest(
 
   result = (code: response.code, body: response.body, etag: respEtag)
 
+proc gitlabGraphQL(client: VcsClient, apiBase, query: string): JsonNode =
+  ## Query GitLab GraphQL API via POST (avoids %2F URL encoding issues).
+  let payload = %*{"query": query}
+  let req = newRequest(apiBase & "/api/graphql")
+  req.verb = "POST"
+  req.headers = @[
+    Header(key: "Content-Type", value: "application/json"),
+    Header(key: "Accept", value: "application/json")
+  ]
+  if client.gitlabToken.len > 0:
+    req.headers.add(Header(key: "Authorization", value: "Bearer " & client.gitlabToken))
+  req.body = $payload
+
+  let resp = fetch(req)
+  if resp.code != 200:
+    raise newException(VcsError, "GraphQL failed: HTTP " & $resp.code)
+
+  let json = parseJson(resp.body)
+  if json.hasKey("errors"):
+    let errors = json["errors"]
+    if errors.len > 0:
+      raise newException(VcsError, "GraphQL error: " & errors[0]["message"].getStr())
+  result = json["data"]
+
 proc getJson(client: VcsClient, url, cacheKey: string): JsonNode =
   let cached = loadCache(client.cacheDir, cacheKey)
   var etag = ""
@@ -381,17 +405,19 @@ proc gitlabEncodedPath(path: string): string =
   result = path.replace("/", "%2F")
 
 proc gitlabFetchMeta(client: VcsClient, repo: RepoRef): (string, DateTime) =
-  let url = repo.apiBase & "/api/v4/projects/" & gitlabEncodedPath(repo.path)
-  let cacheKey = "gl:repo:" & repo.path
-  let json = getJson(client, url, cacheKey)
+  let query = "query { project(fullPath: \"" & repo.path & "\") { description lastActivityAt } }"
+  let gqlData = gitlabGraphQL(client, repo.apiBase, query)
 
-  let desc = if json.hasKey("description") and json["description"].kind != JNull:
-    json["description"].getStr() else: ""
-  let updatedAt = if json.hasKey("last_activity_at"):
-    try: parse(json["last_activity_at"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
-    else: now()
-
-  result = (desc, updatedAt)
+  if gqlData.hasKey("project") and gqlData["project"].kind != JNull:
+    let project = gqlData["project"]
+    let desc = if project.hasKey("description") and project["description"].kind != JNull:
+      project["description"].getStr() else: ""
+    let updatedAt = if project.hasKey("lastActivityAt"):
+      try: parse(project["lastActivityAt"].getStr(), "yyyy-MM-dd'T'HH:mm:ss'Z'") except: now()
+      else: now()
+    result = (desc, updatedAt)
+  else:
+    raise newException(VcsNotFoundError, "GitLab project not found: " & repo.path)
 
 proc gitlabFetchVersions(client: VcsClient, repo: RepoRef): seq[VersionInfo] =
   let url = repo.apiBase & "/api/v4/projects/" & gitlabEncodedPath(repo.path) & "/repository/tags?per_page=100"

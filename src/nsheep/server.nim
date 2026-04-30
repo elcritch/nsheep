@@ -477,6 +477,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
 
   # Static frontend assets
   router.get("/", serveIndex(state))
+  router.get("/llm.txt", serveStaticFile(state, "llm.txt"))
   router.get("/app.js", serveStaticFile(state, "app.js"))
   router.get("/app.css", serveStaticFile(state, "app.css"))
 

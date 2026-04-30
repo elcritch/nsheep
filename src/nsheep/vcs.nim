@@ -712,7 +712,7 @@ proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   let cloneDir = tempDir / repoName
 
   let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell &
-      " " &cloneDir.quoteShell & " 2>&1"
+      " " & cloneDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
     raise newException(VcsError, "git clone failed: " & cloneOut)
@@ -812,7 +812,7 @@ proc genericGitFetchFile*(repo: RepoRef, tag, filename: string): Option[string] 
   defer: removeDir(tempDir)
 
   let cloneCmd = "GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch " & tag.quoteShell & " " & repo.url.quoteShell &
-      " " &tempDir.quoteShell & " 2>&1"
+      " " & tempDir.quoteShell & " 2>&1"
   let (cloneOut, cloneExit) = execCmdEx(cloneCmd)
   if cloneExit != 0:
     return none(string)

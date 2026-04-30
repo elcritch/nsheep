@@ -128,6 +128,7 @@ proc ingestPackage(fetcher: ptr FetcherData, pkg: NimblePkg): IngestResult =
     info "Skipping recently processed package", repo = pkg.repo.path
     return irSkipped
 
+  var lastError = ""
   for attempt in 1..MaxRetries:
     try:
       discard ingest(fetcher.vcs, fetcher.store, pkg.repo, pkg.name, pkg.tags)
@@ -138,11 +139,12 @@ proc ingestPackage(fetcher: ptr FetcherData, pkg: NimblePkg): IngestResult =
       return irFailed
     except CatchableError as e:
       warn "Ingest failed", repo = pkg.repo.path, attempt = attempt, error = e.msg
+      lastError = classifyFailure(e)
       if attempt < MaxRetries:
         sleep(1000 * attempt)
 
   error "Ingest failed permanently", repo = pkg.repo.path
-  recordFailedPackage(fetcher.store, pkg.name, classifyFailure(getCurrentException()), pkg.repo.url)
+  recordFailedPackage(fetcher.store, pkg.name, lastError, pkg.repo.url)
   return irFailed
 
 proc shouldFetch(fetcher: ptr FetcherData, pkg: NimblePkg): bool =

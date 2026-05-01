@@ -566,6 +566,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
   router.get("/api/v1/stats", handleStats(state))
   router.get("/packages.json.patch", handlePackagesJsonPatch(state))
+  router.head("/packages.json.patch", handlePackagesJsonPatch(state))
   router.get("/download/@name/@version", handleDownload(state))
 
   # Static frontend assets

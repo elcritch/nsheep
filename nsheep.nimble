@@ -24,6 +24,7 @@ task frontend, "Build frontend assets":
   exec "cp frontend/index.html public/"
   exec "cp frontend/app.css public/"
   exec "cp frontend/robot.svg public/"
+  exec "cp frontend/theme.js public/"
 
 task test, "Run tests":
   exec "nim c -r tests/test_tags.nim"

@@ -5,15 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src * data: blob:; connect-src 'self'; font-src 'self';">
   <title>NimPack — Nim Package Registry</title>
-  <script>
-    (function() {
-      var theme = localStorage.getItem('nimpack-theme');
-      if (!theme && window.matchMedia) {
-        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      }
-      document.documentElement.setAttribute('data-theme', theme || 'light');
-    })();
-  </script>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/themes/prism-tomorrow.min.css">
   <link rel="stylesheet" href="/app.css?v=917c5e98">
 </head>

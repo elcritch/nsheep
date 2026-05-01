@@ -575,6 +575,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/app.js", serveStaticFile(state, "app.js"))
   router.get("/app.css", serveStaticFile(state, "app.css"))
   router.get("/robot.svg", serveStaticFile(state, "robot.svg"))
+  router.get("/theme.js", serveStaticFile(state, "theme.js"))
 
   # SPA catch-all: serve index.html for any non-API route
   router.get("/**", serveIndex(state))

@@ -459,7 +459,7 @@ proc handlePackagesJsonPatch(state: ptr ServerState): RequestHandler =
       let patch = generatePackagesJsonPatch(state)
       var headers = emptyHttpHeaders()
       headers["Content-Type"] = "text/plain; charset=utf-8"
-      headers["Content-Disposition"] = "attachment; filename=\"remove-repo-not-found.patch\""
+      # Served as plain text so browsers can view it directly
       headers["Cache-Control"] = "public, max-age=3600" # 1 hour cache for the patch itself
       addSecurityHeaders(headers)
       request.respond(200, headers, patch)
@@ -565,7 +565,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages/@name/readme", handleReadme(state))
   router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
   router.get("/api/v1/stats", handleStats(state))
-  router.get("/api/v1/patches/packages.json", handlePackagesJsonPatch(state))
+  router.get("/packages.json.patch", handlePackagesJsonPatch(state))
   router.get("/download/@name/@version", handleDownload(state))
 
   # Static frontend assets

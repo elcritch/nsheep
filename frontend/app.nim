@@ -1024,9 +1024,9 @@ proc renderStats(): VNode =
             tdiv(class = "patch-section"):
               p(class = "patch-label"): text "Apply patch to packages.json:"
               tdiv(class = "patch-command"):
-                code: text "curl -sL https://nimpack.org/api/v1/patches/packages.json | git apply"
+                code: text "curl -sL https://nimpack.org/packages.json.patch | git apply"
                 button(class = "copy-btn", onclick = proc() = copyPatchCommand(
-                    "curl -sL https://nimpack.org/api/v1/patches/packages.json | git apply")):
+                    "curl -sL https://nimpack.org/packages.json.patch | git apply")):
                   text "Copy"
                 if patchCopyFeedback != "":
                   span(class = "copy-feedback"): text patchCopyFeedback

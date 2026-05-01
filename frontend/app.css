@@ -1235,13 +1235,8 @@ a:hover {
 }
 
 .patch-command .copy-btn {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.625rem;
-  background: var(--copy-btn-bg);
-  color: var(--copy-btn-text);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.875rem;
 }
 
 .patch-command .copy-feedback {

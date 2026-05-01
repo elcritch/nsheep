@@ -3,10 +3,11 @@
 ## No async - one thread per request is fine for this workload
 ##
 
-import std/[json, strutils, options, times, os]
+import std/[json, strutils, options, times, os, osproc, hashes, sets]
 import mummy, mummy/routers
 import chronicles
 import nsheep/[types, storage, config]
+from puppy import get
 
 # --- State ---
 
@@ -334,6 +335,7 @@ proc handleStats(state: ptr ServerState): RequestHandler =
     let licenses = getLicenseDistribution(store)
     let hosts = getHostDistribution(store)
     let topTags = getTopTags(store, 20)
+    let repoNotFound = getFailedPackages(store, "repo_not_found")
 
     var topDlJson = newJArray()
     for p in topDownloaded:
@@ -361,6 +363,10 @@ proc handleStats(state: ptr ServerState): RequestHandler =
     for t in topTags:
       tagsJson.add(%*{"tag": t.tag, "count": t.count})
 
+    var repoNotFoundJson = newJArray()
+    for fp in repoNotFound:
+      repoNotFoundJson.add(%*{"name": fp.name, "url": fp.url})
+
     let body = %*{
       "totalPackages": stats.totalPackages,
       "totalAuthors": stats.totalAuthors,
@@ -369,10 +375,97 @@ proc handleStats(state: ptr ServerState): RequestHandler =
       "topAuthors": authorsJson,
       "licenses": licensesJson,
       "hosts": hostsJson,
-      "topTags": tagsJson
+      "topTags": tagsJson,
+      "repoNotFoundCount": repoNotFound.len,
+      "repoNotFound": repoNotFoundJson
     }
 
     sendJson(request, body, cacheSeconds = 300)
+
+const
+  UpstreamPackagesUrl = "https://raw.githubusercontent.com/nim-lang/packages/master/packages.json"
+  UpstreamCachePath = "/tmp/nsheep-upstream-packages.json"
+  PatchCachePath = "/tmp/nsheep-packages-patch.patch"
+  CacheTtlSeconds = 24 * 60 * 60 # 24 hours
+
+proc isCacheStale(path: string, ttl: int): bool =
+  if not fileExists(path):
+    return true
+  let age = int(getTime().toUnix - getFileInfo(path).lastWriteTime.toUnix)
+  return age > ttl
+
+proc fetchUpstreamPackagesJson(): string =
+  ## Fetch upstream packages.json, using disk cache if fresh.
+  if not isCacheStale(UpstreamCachePath, CacheTtlSeconds):
+    return readFile(UpstreamCachePath)
+
+  info "Fetching upstream packages.json"
+  let response = get(UpstreamPackagesUrl, timeout = 30)
+  if response.code != 200:
+    raise newException(IOError, "failed to fetch packages.json: HTTP " & $response.code)
+
+  writeFile(UpstreamCachePath, response.body)
+  return response.body
+
+proc generatePackagesJsonPatch(state: ptr ServerState): string =
+  ## Generate a git patch that removes repo_not_found packages from upstream packages.json
+  let upstreamJson = fetchUpstreamPackagesJson()
+  let store = openStore(state)
+  defer: store.close()
+  let failedPkgs = getFailedPackages(store, "repo_not_found")
+
+  if failedPkgs.len == 0:
+    return "# No repo_not_found packages to remove.\n"
+
+  # Build a hash set for fast lookup
+  var failedNames = initHashSet[string]()
+  for fp in failedPkgs:
+    failedNames.incl(fp.name)
+
+  # Parse upstream JSON
+  let parsed = parseJson(upstreamJson)
+  if parsed.kind != JArray:
+    raise newException(ValueError, "upstream packages.json is not an array")
+
+  # Filter out repo_not_found entries
+  var filtered = newJArray()
+  for pkg in parsed:
+    if pkg.hasKey("name") and failedNames.contains(pkg["name"].getStr()):
+      continue
+    filtered.add(pkg)
+
+  # Write both versions to temp files for diff
+  let originalPath = "/tmp/nsheep-packages-original.json"
+  let filteredPath = "/tmp/nsheep-packages-filtered.json"
+  writeFile(originalPath, upstreamJson)
+  writeFile(filteredPath, pretty(filtered, 2))
+
+  # Generate unified diff
+  let (diffOutput, exitCode) = execCmdEx(
+    "diff -u --label a/packages.json --label b/packages.json " & originalPath & " " & filteredPath
+  )
+
+  if exitCode != 0 and exitCode != 1:
+    # diff returns 1 when files differ (normal), non-zero non-1 is an error
+    warn "diff command failed", exitCode = exitCode, output = diffOutput
+    raise newException(IOError, "diff command failed with exit code " & $exitCode)
+
+  # Prepend git diff header
+  result = "diff --git a/packages.json b/packages.json\n" & diffOutput
+
+proc handlePackagesJsonPatch(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    try:
+      let patch = generatePackagesJsonPatch(state)
+      var headers = emptyHttpHeaders()
+      headers["Content-Type"] = "text/plain; charset=utf-8"
+      headers["Content-Disposition"] = "attachment; filename=\"remove-repo-not-found.patch\""
+      headers["Cache-Control"] = "public, max-age=3600" # 1 hour cache for the patch itself
+      addSecurityHeaders(headers)
+      request.respond(200, headers, patch)
+    except CatchableError as e:
+      error "Failed to generate packages.json patch", error = e.msg
+      sendError(request, 500, "patch_error", "failed to generate patch: " & e.msg)
 
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
@@ -472,6 +565,7 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/api/v1/packages/@name/readme", handleReadme(state))
   router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
   router.get("/api/v1/stats", handleStats(state))
+  router.get("/api/v1/patches/packages.json", handlePackagesJsonPatch(state))
   router.get("/download/@name/@version", handleDownload(state))
 
   # Static frontend assets

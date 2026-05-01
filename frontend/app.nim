@@ -64,6 +64,10 @@ type
     label: string
     count: int
 
+  FailedPkg = object
+    name: string
+    url: string
+
   StatsData = object
     totalPackages: int
     totalAuthors: int
@@ -73,6 +77,8 @@ type
     licenses: seq[LicenseItem]
     hosts: seq[HostItem]
     topTags: seq[TagItem]
+    repoNotFoundCount: int
+    repoNotFound: seq[FailedPkg]
 
 proc sortParam(so: SortOrder): string =
   case so
@@ -95,6 +101,7 @@ var
   activeAuthor = ""
   activeTag = ""
   copyFeedback = ""
+  patchCopyFeedback = ""
   darkMode = false
   readmeContent = ""
   readmeFilename = ""
@@ -371,6 +378,14 @@ proc fetchStats() =
           count: item["count"].getInt()
         ))
 
+    var repoNotFound: seq[FailedPkg] = @[]
+    if data.hasField("repoNotFound"):
+      for item in data["repoNotFound"]:
+        repoNotFound.add(FailedPkg(
+          name: $item["name"].getStr(),
+          url: if item.hasField("url"): $item["url"].getStr() else: ""
+        ))
+
     statsData = StatsData(
       totalPackages: if data.hasField("totalPackages"): data["totalPackages"].getInt() else: 0,
       totalAuthors: if data.hasField("totalAuthors"): data["totalAuthors"].getInt() else: 0,
@@ -379,7 +394,9 @@ proc fetchStats() =
       topAuthors: authors,
       licenses: licenses,
       hosts: hosts,
-      topTags: tags
+      topTags: tags,
+      repoNotFoundCount: if data.hasField("repoNotFoundCount"): data["repoNotFoundCount"].getInt() else: 0,
+      repoNotFound: repoNotFound
     )
     redraw(),
     "Failed to load stats. Please try again."
@@ -676,6 +693,19 @@ proc copyInstallCommand(cmd: string) =
   redraw()
   discard kdom.window.setTimeout(proc() =
     copyFeedback = ""
+    redraw()
+  , 1500)
+
+proc copyPatchCommand(cmd: string) =
+  let w = cast[JsObject](kdom.window)
+  let nav = w["navigator"]
+  let cb = cast[JsObject](nav)["clipboard"]
+  if cb != nil:
+    discard cb.writeText(cstring(cmd))
+  patchCopyFeedback = "Copied!"
+  redraw()
+  discard kdom.window.setTimeout(proc() =
+    patchCopyFeedback = ""
     redraw()
   , 1500)
 
@@ -978,6 +1008,28 @@ proc renderStats(): VNode =
               for it in statsData.topTags:
                 span(class = "tag-pill"):
                   text it.tag & " (" & $it.count & ")"
+
+        tdiv(class = "stats-panel stats-panel-wide"):
+          h2: text "Repo Not Found (" & $statsData.repoNotFoundCount & ")"
+          if statsData.repoNotFound.len == 0:
+            p(class = "empty-text"): text "All repositories are reachable."
+          else:
+            p(class = "help-text"):
+              text "These packages reference repositories that no longer exist. A patch is available to remove them from the upstream packages.json."
+            tdiv(class = "failed-packages-list"):
+              for it in statsData.repoNotFound:
+                tdiv(class = "failed-package-item"):
+                  a(href = cstring(it.url), class = "failed-package-link", target = cstring"_blank"):
+                    text it.name
+            tdiv(class = "patch-section"):
+              p(class = "patch-label"): text "Apply patch to packages.json:"
+              tdiv(class = "patch-command"):
+                code: text "curl -sL https://nimpack.org/api/v1/patches/packages.json | git apply"
+                button(class = "copy-btn", onclick = proc() = copyPatchCommand(
+                    "curl -sL https://nimpack.org/api/v1/patches/packages.json | git apply")):
+                  text "Copy"
+                if patchCopyFeedback != "":
+                  span(class = "copy-feedback"): text patchCopyFeedback
 
 proc postRender() =
   if readmeContent != "":

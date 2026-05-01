@@ -718,6 +718,32 @@ type
     tag*: string
     count*: int
 
+  FailedPackage* = object
+    name*: string
+    url*: string
+    failedAt*: int64
+
+proc getFailedPackages*(s: DbStorage, reason: string = ""): seq[FailedPackage] =
+  ## Get failed packages filtered by reason (empty = all)
+  var query = "SELECT name, url, CAST(failed_at AS INTEGER) FROM failed_packages"
+  if reason.len > 0:
+    query.add(" WHERE reason = ?")
+    query.add(" ORDER BY failed_at DESC")
+    for row in s.db.all(query, reason):
+      result.add(FailedPackage(
+        name: row[0].strVal,
+        url: if row[1].kind == sqliteNull: "" else: row[1].strVal,
+        failedAt: if row[2].kind == sqliteNull: 0 else: row[2].intVal
+      ))
+  else:
+    query.add(" ORDER BY failed_at DESC")
+    for row in s.db.all(query):
+      result.add(FailedPackage(
+        name: row[0].strVal,
+        url: if row[1].kind == sqliteNull: "" else: row[1].strVal,
+        failedAt: if row[2].kind == sqliteNull: 0 else: row[2].intVal
+      ))
+
 proc getPackageStats*(s: DbStorage): PackageStats =
   ## Get core package-level stats
   let pkgRow = s.db.one("SELECT COUNT(*), COUNT(DISTINCT author) FROM packages")

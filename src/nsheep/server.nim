@@ -438,7 +438,9 @@ proc generatePackagesJsonPatch(state: ptr ServerState): string =
   let originalPath = "/tmp/nsheep-packages-original.json"
   let filteredPath = "/tmp/nsheep-packages-filtered.json"
   writeFile(originalPath, upstreamJson)
-  writeFile(filteredPath, pretty(filtered, 2))
+  let filteredText = pretty(filtered, 2)
+  # Strip trailing newline to match upstream formatting (avoids diff noise)
+  writeFile(filteredPath, if filteredText.endsWith("\n"): filteredText[0 ..< filteredText.len - 1] else: filteredText)
 
   # Generate unified diff
   let (diffOutput, exitCode) = execCmdEx(

@@ -68,6 +68,12 @@ type
     name: string
     url: string
 
+  LargestPkg = object
+    name: string
+    url: string
+    totalSize: int
+    versionCount: int
+
   StatsData = object
     totalPackages: int
     totalAuthors: int
@@ -79,6 +85,7 @@ type
     topTags: seq[TagItem]
     repoNotFoundCount: int
     repoNotFound: seq[FailedPkg]
+    largestPackages: seq[LargestPkg]
 
 proc sortParam(so: SortOrder): string =
   case so
@@ -386,6 +393,16 @@ proc fetchStats() =
           url: if item.hasField("url"): $item["url"].getStr() else: ""
         ))
 
+    var largestPackages: seq[LargestPkg] = @[]
+    if data.hasField("largestPackages"):
+      for item in data["largestPackages"]:
+        largestPackages.add(LargestPkg(
+          name: $item["name"].getStr(),
+          url: if item.hasField("url"): $item["url"].getStr() else: "",
+          totalSize: if item.hasField("totalSize"): item["totalSize"].getInt() else: 0,
+          versionCount: if item.hasField("versionCount"): item["versionCount"].getInt() else: 0
+        ))
+
     statsData = StatsData(
       totalPackages: if data.hasField("totalPackages"): data["totalPackages"].getInt() else: 0,
       totalAuthors: if data.hasField("totalAuthors"): data["totalAuthors"].getInt() else: 0,
@@ -396,7 +413,8 @@ proc fetchStats() =
       hosts: hosts,
       topTags: tags,
       repoNotFoundCount: if data.hasField("repoNotFoundCount"): data["repoNotFoundCount"].getInt() else: 0,
-      repoNotFound: repoNotFound
+      repoNotFound: repoNotFound,
+      largestPackages: largestPackages
     )
     redraw(),
     "Failed to load stats. Please try again."
@@ -1008,6 +1026,22 @@ proc renderStats(): VNode =
               for it in statsData.topTags:
                 span(class = "tag-pill"):
                   text it.tag & " (" & $it.count & ")"
+
+        tdiv(class = "stats-panel stats-panel-wide"):
+          h2: text "Largest Packages"
+          if statsData.largestPackages.len == 0:
+            p(class = "empty-text"): text "No package size data yet."
+          else:
+            p(class = "help-text"):
+              text "Packages sorted by total tarball size across all versions. Large tarballs often indicate bundled binaries, vendored dependencies, or test data not kept under a tests/ directory — all worth investigating."
+            tdiv(class = "largest-packages-list"):
+              for it in statsData.largestPackages:
+                tdiv(class = "largest-package-item"):
+                  a(href = cstring(it.url), class = "largest-package-name", target = cstring"_blank"):
+                    text it.name
+                  span(class = "largest-package-meta"):
+                    text formatSize(it.totalSize) & " · " & $it.versionCount & " version" & (if it.versionCount >
+                        1: "s" else: "")
 
         tdiv(class = "stats-panel stats-panel-wide"):
           h2: text "Repo Not Found (" & $statsData.repoNotFoundCount & ")"

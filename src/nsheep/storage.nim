@@ -723,6 +723,12 @@ type
     url*: string
     failedAt*: int64
 
+  LargestPackage* = object
+    name*: string
+    url*: string
+    totalSize*: int64
+    versionCount*: int
+
 proc getFailedPackages*(s: DbStorage, reason: string = ""): seq[FailedPackage] =
   ## Get failed packages filtered by reason (empty = all)
   var query = "SELECT name, url, CAST(failed_at AS INTEGER) FROM failed_packages"
@@ -743,6 +749,23 @@ proc getFailedPackages*(s: DbStorage, reason: string = ""): seq[FailedPackage] =
         url: if row[1].kind == sqliteNull: "" else: row[1].strVal,
         failedAt: if row[2].kind == sqliteNull: 0 else: row[2].intVal
       ))
+
+proc getLargestPackages*(s: DbStorage, limit: int = 20): seq[LargestPackage] =
+  ## Get packages with largest total tarball size
+  for row in s.db.all("""
+    SELECT p.name, p.url, SUM(v.tarball_size) as total_size, COUNT(v.id) as version_count
+    FROM packages p
+    JOIN versions v ON p.id = v.package_id
+    GROUP BY p.id
+    ORDER BY total_size DESC
+    LIMIT ?
+  """, limit.int64):
+    result.add(LargestPackage(
+      name: row[0].strVal,
+      url: if row[1].kind == sqliteNull: "" else: row[1].strVal,
+      totalSize: row[2].intVal,
+      versionCount: row[3].intVal.int
+    ))
 
 proc getPackageStats*(s: DbStorage): PackageStats =
   ## Get core package-level stats

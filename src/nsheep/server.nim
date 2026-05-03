@@ -336,6 +336,7 @@ proc handleStats(state: ptr ServerState): RequestHandler =
     let hosts = getHostDistribution(store)
     let topTags = getTopTags(store, 20)
     let repoNotFound = getFailedPackages(store, "repo_not_found")
+    let largestPackages = getLargestPackages(store, 20)
 
     var topDlJson = newJArray()
     for p in topDownloaded:
@@ -367,6 +368,10 @@ proc handleStats(state: ptr ServerState): RequestHandler =
     for fp in repoNotFound:
       repoNotFoundJson.add(%*{"name": fp.name, "url": fp.url})
 
+    var largestJson = newJArray()
+    for lp in largestPackages:
+      largestJson.add(%*{"name": lp.name, "url": lp.url, "totalSize": lp.totalSize, "versionCount": lp.versionCount})
+
     let body = %*{
       "totalPackages": stats.totalPackages,
       "totalAuthors": stats.totalAuthors,
@@ -377,7 +382,8 @@ proc handleStats(state: ptr ServerState): RequestHandler =
       "hosts": hostsJson,
       "topTags": tagsJson,
       "repoNotFoundCount": repoNotFound.len,
-      "repoNotFound": repoNotFoundJson
+      "repoNotFound": repoNotFoundJson,
+      "largestPackages": largestJson
     }
 
     sendJson(request, body, cacheSeconds = 300)

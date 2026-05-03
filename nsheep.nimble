@@ -16,7 +16,7 @@ requires "chronicles >= 0.10.0"
 requires "yaml >= 2.0.0"
 requires "tiny_sqlite >= 0.2.0"
 requires "zippy >= 0.10.0"
-requires "atlas"
+requires "atlas >= 0.12"
 
 feature "frontend":
   requires "karax"

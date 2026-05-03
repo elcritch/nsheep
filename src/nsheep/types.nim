@@ -98,10 +98,10 @@ proc sanitizePackageName*(s: string): string =
 
   var sanitized = ""
   for c in s:
-    if c in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_'}:
+    if c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}:
       sanitized.add(c)
-    elif c == '.':
-      sanitized.add('-')
+    elif c in {'-', '.'}:
+      sanitized.add('_')
     else:
       sanitized.add('-')
 

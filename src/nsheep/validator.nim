@@ -3,9 +3,9 @@
 ## Tests default branch + latest 2 tagged versions
 ##
 
-import std/[os, osproc, strutils, tempfiles, times, algorithm]
+import std/[os, osproc, strutils, tempfiles, times, algorithm, tables]
 import chronicles
-import nsheep/[config, storage]
+import nsheep/[config, storage, ingest]
 
 export config.ValidatorConfig
 
@@ -61,10 +61,12 @@ proc runDockerBuild(repoUrl, tag, subdir, dockerImage: string, timeout: int): Bu
     result.durationMs = int((getTime() - startTime).inMilliseconds)
     return
   
-  # Find .nimble file to get package name
+  # Find .nimble file to get package name and metadata
   var nimbleFile = ""
   var pkgName = ""
+  var nimblePath = ""
   for file in walkFiles(workDir / "*.nimble"):
+    nimblePath = file
     nimbleFile = file.extractFilename
     pkgName = nimbleFile.replace(".nimble", "")
     break
@@ -75,15 +77,34 @@ proc runDockerBuild(repoUrl, tag, subdir, dockerImage: string, timeout: int): Bu
     result.durationMs = int((getTime() - startTime).inMilliseconds)
     return
   
-  # Run Docker validation: nimble build
-  # Handles both binary packages (builds defined bins) and libraries
-  # (exits successfully with "Nothing to build" for pure libraries)
+  # Parse nimble file for validation strategy
+  let nimbleContent = readFile(nimblePath)
+  let nimbleData = parseNimbleSimple(nimbleContent)
+  let hasBin = nimbleData.getOrDefault("hasBin", "") == "true"
+  let srcDirVal = nimbleData.getOrDefault("srcDir", "")
+  let backend = nimbleData.getOrDefault("backend", "c")
+  
   let dockerWorkDir = if subdir.len > 0: "/src/" & subdir else: "/src"
-  let dockerCmd = "docker run --rm " &
+  let dockerBase = "docker run --rm " &
     "-v " & srcDir & ":/src:ro " &
     "-w " & dockerWorkDir.quoteShell & " " &
-    dockerImage & " " &
-    "nimble build 2>&1"
+    dockerImage & " "
+  
+  var dockerCmd = ""
+  var buildDescription = ""
+  
+  if hasBin:
+    # Binary package: build all defined binaries
+    dockerCmd = dockerBase & "nimble build 2>&1"
+    buildDescription = "nimble build"
+  else:
+    # Library package: compile the main module to verify it imports correctly
+    let nimBackend = if backend in ["c", "cpp", "js", "objc"]: backend else: "c"
+    let srcPath = if srcDirVal.len > 0: srcDirVal & "/" & pkgName & ".nim" else: pkgName & ".nim"
+    dockerCmd = dockerBase & "nim " & nimBackend & " " & srcPath.quoteShell & " 2>&1"
+    buildDescription = "nim " & nimBackend & " " & srcPath
+  
+  info "Running validation", repo = repoUrl, tag = tag, command = buildDescription
   
   let (buildOut, buildExit) = execCmdEx(dockerCmd)
   

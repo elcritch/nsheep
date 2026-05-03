@@ -10,7 +10,7 @@ import nsheep/[config, storage]
 export config.ValidatorConfig
 
 const
-  DefaultDockerImage = "nimlang/nim:latest"
+  DefaultDockerImage = "nimlang/nim:alpine"
   BuildTimeout = 300  # 5 minutes per build
   MaxVersionsToTest = 2  # Latest 2 tagged versions + default branch
 
@@ -75,14 +75,15 @@ proc runDockerBuild(repoUrl, tag, subdir, dockerImage: string, timeout: int): Bu
     result.durationMs = int((getTime() - startTime).inMilliseconds)
     return
   
-  # Run Docker validation: nimble c <pkgname>
-  # This compiles the package's entry point defined in the .nimble file
+  # Run Docker validation: nimble build
+  # Handles both binary packages (builds defined bins) and libraries
+  # (exits successfully with "Nothing to build" for pure libraries)
   let dockerWorkDir = if subdir.len > 0: "/src/" & subdir else: "/src"
   let dockerCmd = "docker run --rm " &
     "-v " & srcDir & ":/src:ro " &
     "-w " & dockerWorkDir.quoteShell & " " &
     dockerImage & " " &
-    "nimble c " & pkgName & " 2>&1"
+    "nimble build 2>&1"
   
   let (buildOut, buildExit) = execCmdEx(dockerCmd)
   

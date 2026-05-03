@@ -3,6 +3,8 @@ import std/[os, paths, tables, tempfiles]
 import basic/[deptypes, nimblecontext, pkgurls, versions]
 import releaseinfo
 
+const NimRepoUrl = "https://github.com/nim-lang/Nim"
+
 proc processNimbleReleaseSafe(
     nc: var NimbleContext;
     pkg: Package;
@@ -21,6 +23,7 @@ proc parseProjectInfoImpl(nimbleContent: string): Table[string, string] =
 
   let release = try:
     var nc = createUnfilledNimbleContext()
+    discard nc.put("nim", createUrlSkipPatterns(NimRepoUrl))
     let pkgUrl = createUrlSkipPatterns(tempDir)
     let pkg = Package(url: pkgUrl, ondisk: Path tempDir, isLocalOnly: true)
     processNimbleReleaseSafe(

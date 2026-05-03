@@ -1,4 +1,6 @@
 
+--path:"$nim"
+
 task frontend, "Build frontend assets":
   when not defined(feature.nsheep.frontend):
     exec "nimble install karax -d -y"

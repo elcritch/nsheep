@@ -16,9 +16,11 @@ requires "chronicles >= 0.10.0"
 requires "yaml >= 2.0.0"
 requires "tiny_sqlite >= 0.2.0"
 requires "zippy >= 0.10.0"
+requires "atlas"
 
 feature "frontend":
   requires "karax"
 
 when fileExists("config.nims"):
   include "config.nims"
+

@@ -95,13 +95,15 @@ proc runDockerBuild(repoUrl, tag, subdir, dockerImage: string, timeout: int): Bu
   
   if hasBin:
     # Binary package: build all defined binaries
-    dockerCmd = dockerBase & "nimble build 2>&1"
+    # Use --binDir to output to a writable location since /src is mounted ro
+    dockerCmd = dockerBase & "nimble build --binDir:/tmp 2>&1"
     buildDescription = "nimble build"
   else:
     # Library package: compile the main module to verify it imports correctly
+    # Output to /tmp since /src is mounted read-only
     let nimBackend = if backend in ["c", "cpp", "js", "objc"]: backend else: "c"
     let srcPath = if srcDirVal.len > 0: srcDirVal & "/" & pkgName & ".nim" else: pkgName & ".nim"
-    dockerCmd = dockerBase & "nim " & nimBackend & " " & srcPath.quoteShell & " 2>&1"
+    dockerCmd = dockerBase & "nim " & nimBackend & " -o:/tmp/" & pkgName & " " & srcPath.quoteShell & " 2>&1"
     buildDescription = "nim " & nimBackend & " " & srcPath
   
   info "Running validation", repo = repoUrl, tag = tag, command = buildDescription

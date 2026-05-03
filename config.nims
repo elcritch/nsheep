@@ -1,8 +1,7 @@
 
 task frontend, "Build frontend assets":
   when not defined(feature.nsheep.frontend):
-    echo "Must install with 'frontend' feature"
-    quit(1)
+    exec "nimble install karax -d -y"
 
   exec "mkdir -p public"
   exec "nim js -d:release -o:public/app.js frontend/app.nim"

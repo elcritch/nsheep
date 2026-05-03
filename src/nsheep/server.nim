@@ -114,7 +114,7 @@ proc handleGetPackage(state: ptr ServerState): RequestHandler =
 
     # Validate name
     let name = try:
-      initPackageName(nameStr)
+      nameStr
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
@@ -227,7 +227,7 @@ proc handleValidations(state: ptr ServerState): RequestHandler =
 
     # Parse name
     let name = try:
-      initPackageName(nameStr)
+      nameStr
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
@@ -253,7 +253,7 @@ proc handleReadme(state: ptr ServerState): RequestHandler =
 
     # Parse name
     let name = try:
-      initPackageName(nameStr)
+      nameStr
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
@@ -308,13 +308,13 @@ proc handleDownloads(state: ptr ServerState): RequestHandler =
 
     # Parse name
     let name = try:
-      initPackageName(nameStr)
+      nameStr
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return
 
     # Load download stats
-    let stats = getDownloadStats(store, name.string)
+    let stats = getDownloadStats(store, name)
 
     var arr = newJArray()
     for s in stats:
@@ -476,7 +476,7 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
 
     # Parse name
     let name = try:
-      initPackageName(nameStr)
+      nameStr
     except ValueError as e:
       sendError(request, 400, "invalid_name", e.msg)
       return

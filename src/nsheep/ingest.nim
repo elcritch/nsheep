@@ -7,11 +7,11 @@ import std/[times, tables, strutils, options]
 import chronicles
 import nsheep/[types, storage, vcs, tarstrip], puppy
 
-proc storeVersionReadme(store: DbStorage, pkgName: PackageName, ver: SemVer, tarballBytes: seq[byte]) =
+proc storeVersionReadme(store: DbStorage, pkgName: string, ver: SemVer, tarballBytes: seq[byte]) =
   let readme = extractReadmeFromTarball(tarballBytes)
   if readme.content.len > 0:
     let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
-    storeReadme(store, pkgName.string, versionStr, readme.filename, readme.content)
+    storeReadme(store, pkgName, versionStr, readme.filename, readme.content)
 
 # --- Errors ---
 
@@ -100,12 +100,12 @@ proc ingest*(
 
   # 5. Determine canonical package name — NEVER fall back to repo name
   let pkgName = if canonicalName.len > 0:
-    initPackageName(sanitizePackageName(canonicalName))
+    canonicalName
   else:
     # No canonical name provided — try nimble file, or fail
     let nimbleName = nimbleData.getOrDefault("name", "")
     if nimbleName.len > 0:
-      initPackageName(sanitizePackageName(nimbleName))
+      nimbleName
     else:
       raise newException(IngestError, "no canonical name provided and no name in nimble file: " & repo.path)
 
@@ -203,7 +203,7 @@ proc ingest*(
       # Extract and store README from tarball
       let headReadme = extractReadmeFromTarball(tarballBytes)
       if headReadme.content.len > 0:
-        storeReadme(store, pkgName.string, "#head", headReadme.filename, headReadme.content)
+        storeReadme(store, pkgName, "#head", headReadme.filename, headReadme.content)
 
       storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, headSha)
       versions.add(PackageVersion(
@@ -240,7 +240,7 @@ proc ingest*(
 proc updatePackage*(
   client: var VcsClient,
   store: DbStorage,
-  name: PackageName
+  name: string
 ): Package {.raises: [IngestError, VcsError, StorageError, storage.NotFoundError, Exception].} =
   ## Update existing package
 

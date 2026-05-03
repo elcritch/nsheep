@@ -168,24 +168,24 @@ proc storePackage*(s: DbStorage, pkg: Package) =
       url = excluded.url,
       tags = excluded.tags,
       created_at = COALESCE(packages.created_at, unixepoch())
-  """, pkg.name.string, pkg.description, pkg.author, pkg.license, pkg.url, tagsJson)
+  """, pkg.name, pkg.description, pkg.author, pkg.license, pkg.url, tagsJson)
 
-proc touchPackage*(s: DbStorage, pkgName: PackageName) =
+proc touchPackage*(s: DbStorage, pkgName: string) =
   ## Bump updated_at to mark a successful full ingest. Used by the fetcher
   ## to distinguish "metadata stored but ingest crashed" from "fully processed".
   s.db.exec("""
     UPDATE packages SET updated_at = unixepoch() WHERE name = ?
-  """, pkgName.string)
+  """, pkgName)
 
-proc loadPackage*(s: DbStorage, name: PackageName): Package =
+proc loadPackage*(s: DbStorage, name: string): Package =
   ## Load package by name
   let row = s.db.one("""
     SELECT name, description, author, license, url, tags, CAST(created_at AS INTEGER), CAST(updated_at AS INTEGER)
     FROM packages WHERE name = ?
-  """, name.string)
+  """, name)
 
   if row.isNone:
-    raise newException(NotFoundError, "package not found: " & name.string)
+    raise newException(NotFoundError, "package not found: " & name)
 
   let r = row.get()
   result.name = name
@@ -199,7 +199,7 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     let tagsJson = parseJson(tagsStr)
     result.tags = tagsJson.getElems().mapIt(it.getStr())
   except CatchableError as e:
-    warn "Failed to parse package tags", name = name.string, error = e.msg
+    warn "Failed to parse package tags", name = name, error = e.msg
     result.tags = @[]
 
   # Parse timestamps
@@ -218,7 +218,7 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
     FROM versions
     WHERE package_id = (SELECT id FROM packages WHERE name = ?)
     ORDER BY major DESC, minor DESC, patch DESC
-  """, name.string):
+  """, name):
     let ver = initSemVer(vrow[0].intVal.int, vrow[1].intVal.int, vrow[2].intVal.int)
     let refName = if vrow[3].kind == sqliteNull: "" else: vrow[3].strVal
     let checksum = initChecksum(vrow[6].strVal)
@@ -232,10 +232,10 @@ proc loadPackage*(s: DbStorage, name: PackageName): Package =
       publishedAt: publishedAt
     ))
 
-proc listPackages*(s: DbStorage): seq[PackageName] =
+proc listPackages*(s: DbStorage): seq[string] =
   ## List all package names
   for row in s.db.all("SELECT name FROM packages ORDER BY name"):
-    result.add(initPackageName(row[0].strVal))
+    result.add(row[0].strVal)
 
 # --- Summary Operations ---
 
@@ -375,14 +375,14 @@ proc countPackages*(s: DbStorage, search: string = "",
 
 # --- Version/Tarball Operations ---
 
-proc tarballPath*(s: DbStorage, pkgName: PackageName, ver: SemVer, refName: string = ""): string =
+proc tarballPath*(s: DbStorage, pkgName: string, ver: SemVer, refName: string = ""): string =
   ## Get filesystem path for tarball
   let versionStr = if refName.len > 0: "#head" else: $ver.major & "." & $ver.minor & "." & $ver.patch
-  s.tarballDir / $pkgName & "-" & versionStr & ".tar.gz"
+  s.tarballDir / pkgName & "-" & versionStr & ".tar.gz"
 
 proc storeVersion*(
   s: DbStorage,
-  pkgName: PackageName,
+  pkgName: string,
   ver: SemVer,
   tarball: seq[byte],
   checksum: Checksum,
@@ -391,9 +391,9 @@ proc storeVersion*(
 ) =
   ## Store a version - tarball to filesystem, metadata to SQLite
   # Get package id
-  let pkgRow = s.db.one("SELECT id FROM packages WHERE name = ?", pkgName.string)
+  let pkgRow = s.db.one("SELECT id FROM packages WHERE name = ?", pkgName)
   if pkgRow.isNone:
-    raise newException(NotFoundError, "package not found: " & pkgName.string)
+    raise newException(NotFoundError, "package not found: " & pkgName)
 
   let pkgId = pkgRow.get()[0].intVal
 
@@ -437,7 +437,7 @@ proc storeVersion*(
 
 proc loadTarball*(
   s: DbStorage,
-  pkgName: PackageName,
+  pkgName: string,
   ver: SemVer,
   refName: string = ""
 ): seq[byte] =
@@ -449,17 +449,17 @@ proc loadTarball*(
       WHERE p.name = ? AND v.head_commit IS NOT NULL
       ORDER BY v.major DESC, v.minor DESC, v.patch DESC
       LIMIT 1
-    """, pkgName.string)
+    """, pkgName)
   else:
     s.db.one("""
       SELECT tarball_path FROM versions v
       JOIN packages p ON v.package_id = p.id
       WHERE p.name = ? AND v.major = ? AND v.minor = ? AND v.patch = ? AND v.head_commit IS NULL
-    """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
+    """, pkgName, ver.major.int64, ver.minor.int64, ver.patch.int64)
 
   if row.isNone:
     let verStr = if refName.len > 0: refName else: $ver.major & "." & $ver.minor & "." & $ver.patch
-    raise newException(NotFoundError, "version not found: " & $pkgName & "@" & verStr)
+    raise newException(NotFoundError, "version not found: " & pkgName & "@" & verStr)
 
   let tarPath = row.get()[0].strVal
   if not fileExists(tarPath):
@@ -478,7 +478,7 @@ proc loadTarball*(
 
 proc getTarballPath*(
   s: DbStorage,
-  pkgName: PackageName,
+  pkgName: string,
   ver: SemVer,
   refName: string = ""
 ): string =
@@ -490,56 +490,56 @@ proc getTarballPath*(
       WHERE p.name = ? AND v.head_commit IS NOT NULL
       ORDER BY v.major DESC, v.minor DESC, v.patch DESC
       LIMIT 1
-    """, pkgName.string)
+    """, pkgName)
   else:
     s.db.one("""
       SELECT tarball_path FROM versions v
       JOIN packages p ON v.package_id = p.id
       WHERE p.name = ? AND v.major = ? AND v.minor = ? AND v.patch = ? AND v.head_commit IS NULL
-    """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
+    """, pkgName, ver.major.int64, ver.minor.int64, ver.patch.int64)
 
   if row.isNone:
     let verStr = if refName.len > 0: refName else: $ver.major & "." & $ver.minor & "." & $ver.patch
-    raise newException(NotFoundError, "version not found: " & $pkgName & "@" & verStr)
+    raise newException(NotFoundError, "version not found: " & pkgName & "@" & verStr)
 
   result = row.get()[0].strVal
   if not fileExists(result):
     raise newException(NotFoundError, "tarball file not found: " & result)
 
-proc versionExists*(s: DbStorage, pkgName: PackageName, ver: SemVer, refName: string = ""): bool =
+proc versionExists*(s: DbStorage, pkgName: string, ver: SemVer, refName: string = ""): bool =
   ## Check if version exists
   let row = if refName.len > 0:
     s.db.one("""
       SELECT 1 FROM versions v
       JOIN packages p ON v.package_id = p.id
       WHERE p.name = ? AND v.head_commit = ?
-    """, pkgName.string, refName)
+    """, pkgName, refName)
   else:
     s.db.one("""
       SELECT 1 FROM versions v
       JOIN packages p ON v.package_id = p.id
       WHERE p.name = ? AND v.major = ? AND v.minor = ? AND v.patch = ? AND v.head_commit IS NULL
-    """, pkgName.string, ver.major.int64, ver.minor.int64, ver.patch.int64)
+    """, pkgName, ver.major.int64, ver.minor.int64, ver.patch.int64)
   return row.isSome
 
-proc getHeadCommitSha*(s: DbStorage, pkgName: PackageName): string =
+proc getHeadCommitSha*(s: DbStorage, pkgName: string): string =
   ## Return the stored HEAD commit SHA for a package, or empty string if none.
   let row = s.db.one("""
     SELECT v.head_commit FROM versions v
     JOIN packages p ON v.package_id = p.id
     WHERE p.name = ? AND v.major = 99999 AND v.minor = 99999 AND v.patch = 99999
     LIMIT 1
-  """, pkgName.string)
+  """, pkgName)
   if row.isSome and row.get()[0].kind != sqliteNull:
     result = row.get()[0].strVal
 
-proc deleteHeadVersions*(s: DbStorage, pkgName: PackageName) =
+proc deleteHeadVersions*(s: DbStorage, pkgName: string) =
   ## Remove all HEAD versions for a package so a new HEAD can replace them.
   s.db.exec("""
     DELETE FROM versions WHERE package_id = (
       SELECT id FROM packages WHERE name = ?
     ) AND major = 99999 AND minor = 99999 AND patch = 99999
-  """, pkgName.string)
+  """, pkgName)
 
 proc packageProcessedRecently*(s: DbStorage, pkgName: string, withinSeconds: int): bool =
   ## Check if the fetcher fully processed a package within the given seconds.

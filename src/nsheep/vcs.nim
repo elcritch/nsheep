@@ -770,7 +770,7 @@ proc genericGitDownloadTarball*(repo: RepoRef, tag: string): seq[byte] =
   else:
     raise newException(VcsError, "cannot read tarball: " & tarPath)
 
-proc trimTarballToSubdir*(tarballBytes: seq[byte], repo: RepoRef, pkgName: PackageName, tag: string): seq[byte] =
+proc trimTarballToSubdir*(tarballBytes: seq[byte], repo: RepoRef, pkgName: string, tag: string): seq[byte] =
   ## For subdir packages, extract a full-repo tarball and re-archive only
   ## the subdir contents under a top-level directory named {pkgName}-{tag}/.
   ## Returns original bytes if repo.subdir is empty.
@@ -815,7 +815,7 @@ proc trimTarballToSubdir*(tarballBytes: seq[byte], repo: RepoRef, pkgName: Packa
     raise newException(VcsError, "subdir not found in tarball: " & repo.subdir)
 
   # Create new top-level directory with desired name
-  let tarName = if tag == "#head": $pkgName & "-head" else: $pkgName & "-" & tag
+  let tarName = if tag == "#head": pkgName & "-head" else: pkgName & "-" & tag
   let workDir = tempDir / "work"
   let destDir = workDir / tarName
   createDir(destDir)

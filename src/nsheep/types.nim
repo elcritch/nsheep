@@ -12,9 +12,6 @@ type
     ## Semantic version - always valid, parsed at construction
     major*, minor*, patch*: int
 
-  PackageName* = distinct string
-    ## Validated package name - no invalid chars
-
   Checksum* = distinct string
     ## SHA256 hash - always 64 hex chars
 
@@ -29,7 +26,7 @@ type
 
   Package* = object
     ## Aggregate root - must have valid name and at least one version
-    name*: PackageName
+    name*: string
     description*: string
     author*: string
     license*: string
@@ -89,48 +86,6 @@ proc parseSemVer*(s: string): Option[SemVer] =
     result = some(initSemVer(major, minor, patch))
   except ValueError:
     result = none(SemVer)
-
-proc sanitizePackageName*(s: string): string =
-  ## Convert any string into a valid package name
-  ## Replaces dots with hyphens, strips invalid chars, ensures starts with letter
-  if s.len == 0:
-    return "pkg"
-
-  var sanitized = ""
-  for c in s:
-    if c in {'a'..'z', 'A'..'Z', '0'..'9', '_'}:
-      sanitized.add(c)
-    elif c in {'-', '.'}:
-      sanitized.add('_')
-    else:
-      sanitized.add('-')
-
-  # Ensure starts with a letter
-  if sanitized.len == 0 or sanitized[0] notin {'a'..'z', 'A'..'Z'}:
-    sanitized = "pkg-" & sanitized
-
-  # Trim to max length
-  if sanitized.len > 100:
-    sanitized = sanitized[0..<100]
-
-  result = sanitized
-
-proc initPackageName*(s: string): PackageName {.raises: [ValueError].} =
-  ## Validate and create package name
-  ## Rules: alphanumeric, hyphen, underscore only. Must start with letter.
-  if s.len == 0 or s.len > 100:
-    raise newException(ValueError, "package name length must be 1-100")
-
-  if s[0] notin {'a'..'z', 'A'..'Z'}:
-    raise newException(ValueError, "package name must start with letter")
-
-  for c in s:
-    if c notin {'a'..'z', 'A'..'Z', '0'..'9', '-', '_'}:
-      raise newException(ValueError, "invalid character in package name: " & c)
-
-  result = PackageName(s)
-
-proc `$`*(n: PackageName): string {.inline.} = string(n)
 
 proc initChecksum*(hex: string): Checksum {.raises: [ValueError].} =
   if hex.len != 64:

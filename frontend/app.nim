@@ -1033,7 +1033,7 @@ proc renderStats(): VNode =
             p(class = "empty-text"): text "No package size data yet."
           else:
             p(class = "help-text"):
-              text "Packages sorted by total tarball size across all versions. Large tarballs often indicate bundled binaries, vendored dependencies, or test data not kept under a tests/ directory — all worth investigating."
+              text "Packages sorted by total tarball size across all versions. Large tarballs often indicate bundled binaries, vendored third-party dependencies, or test data not kept under a tests/ directory — all worth investigating."
             tdiv(class = "largest-packages-list"):
               for it in statsData.largestPackages:
                 tdiv(class = "largest-package-item"):

@@ -16,7 +16,7 @@ requires "chronicles >= 0.10.0"
 requires "yaml >= 2.0.0"
 requires "tiny_sqlite >= 0.2.0"
 requires "zippy >= 0.10.0"
-requires "atlas >= 0.12"
+requires "https://github.com/elcritch/atlas#package-cache-tweaks"
 
 feature "frontend":
   requires "karax"

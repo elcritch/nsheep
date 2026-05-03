@@ -90,3 +90,12 @@ name = "mypackage" version = "ignored"
     let result = parseNimbleSimple(content)
     check result["name"] == "mypackage"
     check not result.hasKey("version")
+
+  test "extracts backend and detects bin assignment":
+    let content = """
+backend = "cpp"
+bin = @["tool"]
+"""
+    let result = parseNimbleSimple(content)
+    check result["backend"] == "cpp"
+    check result["hasBin"] == "true"

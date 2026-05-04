@@ -1,5 +1,5 @@
 import karax / [vdom, kdom, karax, karaxdsl, jjson, kajax, localstorage, vstyles]
-import strutils, jsffi, algorithm
+import strutils, jsffi, algorithm, uri
 
 # --- Types ---
 
@@ -63,6 +63,7 @@ type
   BarItem = object
     label: string
     count: int
+    href: string
 
   FailedPkg = object
     name: string
@@ -152,8 +153,45 @@ proc parsePath(): View =
   else:
     result = vNotFound
 
+proc filterUrl(): string =
+  result = "/"
+  var params: seq[string] = @[]
+  if searchQuery.len > 0:
+    params.add("q=" & searchQuery)
+  if activeAuthor.len > 0:
+    params.add("author=" & activeAuthor)
+  if activeTag.len > 0:
+    params.add("tag=" & activeTag)
+  if params.len > 0:
+    result &= "?" & params.join("&")
+
 proc updateRoute() =
   currentView = parsePath()
+  if currentView == vHome:
+    let oldAuthor = activeAuthor
+    let oldTag = activeTag
+    let oldQuery = searchQuery
+    let search = $kdom.window.location.search
+    if search.len > 1:
+      activeAuthor = ""
+      activeTag = ""
+      searchQuery = ""
+      let pairs = search[1..^1].split('&')
+      for pair in pairs:
+        let kv = pair.split('=', 1)
+        if kv.len == 2:
+          case kv[0]
+          of "author": activeAuthor = kv[1]
+          of "tag": activeTag = kv[1]
+          of "q": searchQuery = kv[1]
+    else:
+      activeAuthor = ""
+      activeTag = ""
+      searchQuery = ""
+    if oldAuthor != activeAuthor or oldTag != activeTag or oldQuery != searchQuery:
+      summaries = @[]
+      filtered = @[]
+      displayedCount = 0
 
 proc navigateTo(path: cstring) =
   let hist = cast[JsObject](kdom.window)["history"]
@@ -500,28 +538,28 @@ proc clickAuthor(author: string) =
   summaries = @[]
   filtered = @[]
   displayedCount = 0
-  navigateTo(cstring"/")
+  navigateTo(cstring(filterUrl()))
 
 proc clickTag(tag: string) =
   activeTag = tag
   summaries = @[]
   filtered = @[]
   displayedCount = 0
-  navigateTo(cstring"/")
+  navigateTo(cstring(filterUrl()))
 
 proc clearAuthor() =
   activeAuthor = ""
   summaries = @[]
   filtered = @[]
   displayedCount = 0
-  fetchSummaries(1)
+  navigateTo(cstring(filterUrl()))
 
 proc clearTag() =
   activeTag = ""
   summaries = @[]
   filtered = @[]
   displayedCount = 0
-  fetchSummaries(1)
+  navigateTo(cstring(filterUrl()))
 
 proc clearAllFilters() =
   searchQuery = ""
@@ -532,6 +570,7 @@ proc clearAllFilters() =
   summaries = @[]
   filtered = @[]
   displayedCount = 0
+  navigateTo(cstring"/")
   fetchSummaries(1)
 
 proc closeDropdown() =
@@ -675,7 +714,7 @@ proc renderHome(): VNode =
               p(class = "package-meta"):
                 text "By "
                 let author = s.author
-                a(href = "/", class = "inline-link", onclick = proc() = clickAuthor(author)): text author
+                a(href = cstring("/?author=" & encodeUrl(author, true)), class = "inline-link"): text author
       if summaries.len < totalPackages:
         tdiv(class = "load-more-wrap"):
           button(class = "load-more-btn", disabled = loading, onclick = proc() =
@@ -819,7 +858,7 @@ proc renderPackage(): VNode =
         tdiv(class = "tags"):
           for t in detail.tags:
             let tagName = t
-            a(href = "/", class = "tag", onclick = proc() = clickTag(tagName)): text tagName
+            a(href = cstring("/?tag=" & encodeUrl(tagName, true)), class = "tag"): text tagName
       section(class = "versions"):
         h2: text "Versions"
         for v in detail.versions:
@@ -920,7 +959,10 @@ proc renderBar(items: seq[BarItem], maxVal: int, colorClass: string): VNode =
       let pct = if maxVal > 0: int(it.count.float / maxVal.float * 100.0) else: 0
       tdiv(class = "bar-row"):
         tdiv(class = "bar-label"):
-          text it.label
+          if it.href.len > 0:
+            a(href = cstring(it.href)): text it.label
+          else:
+            text it.label
         tdiv(class = "bar-track"):
           tdiv(class = cstring("bar-fill " & colorClass), style = style(width, cstring($pct & "%")))
         tdiv(class = "bar-value"):
@@ -932,7 +974,7 @@ proc buildBars(downloads: seq[TopDownloaded]): (seq[BarItem], int) =
     if it.downloads > maxVal: maxVal = it.downloads
   var bars: seq[BarItem] = @[]
   for it in downloads:
-    bars.add(BarItem(label: it.name, count: it.downloads))
+    bars.add(BarItem(label: it.name, count: it.downloads, href: "/package/" & encodeUrl(it.name, true)))
   result = (bars, maxVal)
 
 proc buildBars(authors: seq[TopAuthor]): (seq[BarItem], int) =
@@ -941,7 +983,7 @@ proc buildBars(authors: seq[TopAuthor]): (seq[BarItem], int) =
     if it.packageCount > maxVal: maxVal = it.packageCount
   var bars: seq[BarItem] = @[]
   for it in authors:
-    bars.add(BarItem(label: it.name, count: it.packageCount))
+    bars.add(BarItem(label: it.name, count: it.packageCount, href: "/?author=" & encodeUrl(it.name, true)))
   result = (bars, maxVal)
 
 proc buildBars(licenses: seq[LicenseItem]): (seq[BarItem], int) =
@@ -1024,7 +1066,7 @@ proc renderStats(): VNode =
           else:
             tdiv(class = "tag-cloud"):
               for it in statsData.topTags:
-                span(class = "tag-pill"):
+                a(href = cstring("/?tag=" & encodeUrl(it.tag, true)), class = "tag-pill"):
                   text it.tag & " (" & $it.count & ")"
 
         tdiv(class = "stats-panel stats-panel-wide"):
@@ -1037,7 +1079,7 @@ proc renderStats(): VNode =
             tdiv(class = "largest-packages-list"):
               for it in statsData.largestPackages:
                 tdiv(class = "largest-package-item"):
-                  a(href = cstring(it.url), class = "largest-package-name", target = cstring"_blank"):
+                  a(href = cstring("/package/" & encodeUrl(it.name, true)), class = "largest-package-name"):
                     text it.name
                   span(class = "largest-package-meta"):
                     text formatSize(it.totalSize) & " · " & $it.versionCount & " version" & (if it.versionCount >

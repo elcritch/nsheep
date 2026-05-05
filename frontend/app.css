@@ -732,6 +732,53 @@ a:hover {
   letter-spacing: 0.04em;
 }
 
+.similar-packages {
+  margin-top: 2rem;
+}
+
+.similar-packages > h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--text);
+}
+
+.similar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.similar-row:last-child {
+  border-bottom: none;
+}
+
+.similar-name {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9375rem;
+}
+
+.similar-name:hover {
+  text-decoration: underline;
+}
+
+.similar-score {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--dim);
+  background: var(--bg2);
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+}
+
 .readme {
   margin-top: 2rem;
 }

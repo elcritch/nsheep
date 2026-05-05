@@ -3,17 +3,21 @@
 ## No async - one thread per request is fine for this workload
 ##
 
-import std/[json, strutils, options, times, os, osproc, hashes, sets]
+import std/[json, strutils, options, times, os, osproc, hashes, sets, tables, algorithm, sequtils]
 import mummy, mummy/routers
 import chronicles
 import nsheep/[types, storage, config]
+import minhash
 from puppy import get
 
 # --- State ---
 
 type
+  SimilarEntry* = tuple[name: string, jaccard: float]
+
   ServerState* = object
     cfg*: Config
+    similarities*: TableRef[string, seq[SimilarEntry]]
 
 proc openStore(state: ptr ServerState): DbStorage =
   ## Each request gets its own DB connection — SQLite connections are NOT thread-safe.
@@ -561,11 +565,69 @@ proc serveIndex(state: ptr ServerState): RequestHandler =
 
 # --- Setup ---
 
+proc initSimilarities*(state: ptr ServerState) =
+  ## Pre-compute package similarities from version_hashes at startup
+  state.similarities = newTable[string, seq[SimilarEntry]]()
+  let store = openStore(state)
+  defer: store.close()
+
+  let hashes = try:
+    getVersionHashes(store)
+  except CatchableError:
+    warn "Failed to load version hashes for similarity computation"
+    return
+
+  if hashes.len < 2:
+    return
+
+  const NumSeeds = 128
+  const NumBands = 16
+  const MinJaccard = 0.35
+
+  var dummyHasher = initMinHasher[uint32](NumSeeds, proc(s: string): seq[string] = @[])
+  var lsh = initLocalitySensitive(dummyHasher, num_bands = NumBands)
+
+  for h in hashes:
+    if h.hash.len > 0:
+      lsh.add(h.hash, h.pkgName)
+
+  let dupes = lsh.getDuplicates(min_jaccard = MinJaccard)
+
+  for p in dupes:
+    let (a, b) = if p.a < p.b: (p.a, p.b) else: (p.b, p.a)
+    let fpA = hashes.filterIt(it.pkgName == a)[0].hash
+    let fpB = hashes.filterIt(it.pkgName == b)[0].hash
+    let j = dummyHasher.jaccard(fpA, fpB)
+    if j < MinJaccard:
+      continue
+    state.similarities.mgetOrPut(a, @[]).add((name: b, jaccard: j))
+    state.similarities.mgetOrPut(b, @[]).add((name: a, jaccard: j))
+
+  # Sort each list by jaccard descending
+  for name, entries in state.similarities.mpairs:
+    algorithm.sort(entries, proc(x, y: SimilarEntry): int =
+      if x.jaccard > y.jaccard: -1
+      elif x.jaccard < y.jaccard: 1
+      else: 0
+    )
+
+  info "Computed package similarities", count = state.similarities.len
+
+proc handleGetSimilarPackages(state: ptr ServerState): RequestHandler =
+  result = proc(request: Request) =
+    let name = request.pathParams["name"]
+    let entries = state.similarities.getOrDefault(name, @[])
+    var arr = newJArray()
+    for e in entries:
+      arr.add(%*{"name": e.name, "jaccard": e.jaccard})
+    sendJson(request, arr, cacheSeconds = 3600)
+
 proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/health", handleHealth(state))
   router.get("/packages.json", handlePackagesJson(state))
   router.get("/api/v1/packages", handleListPackages(state))
   router.get("/api/v1/packages/@name", handleGetPackage(state))
+  router.get("/api/v1/packages/@name/similar", handleGetSimilarPackages(state))
   # Note: Ingestion is now handled automatically by background fetcher
   router.get("/api/v1/packages/@name/validations", handleValidations(state))
   router.get("/api/v1/packages/@name/readme", handleReadme(state))
@@ -605,7 +667,8 @@ proc runServer*(cfg: Config) =
   var state: ServerState
   state.cfg = cfg
 
-  discard
+  # Pre-compute similarities
+  initSimilarities(addr state)
 
   # Setup router
   var router = Router()

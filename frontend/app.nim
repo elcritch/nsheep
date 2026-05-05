@@ -31,6 +31,10 @@ type
     success: bool
     testedAt: int
 
+  SimilarPkg = object
+    name: string
+    jaccard: float
+
   PackageDetail = object
     name: string
     description: string
@@ -124,6 +128,7 @@ var
   totalPackages = 0
   currentPage = 1
   statsData: StatsData
+  similarPackages: seq[SimilarPkg] = @[]
 
 # --- Forward Declarations ---
 
@@ -132,6 +137,7 @@ proc fetchSearchSuggestions(q: string)
 proc fetchDetail(name: string)
 proc fetchValidations(name: string)
 proc fetchReadme(name: string)
+proc fetchSimilar(name: string)
 proc fetchDownloads(name: string)
 proc fetchStats()
 proc applyFilters()
@@ -377,6 +383,16 @@ proc fetchDownloads(name: string) =
       totalDownloads += item["downloads"].getInt()
     redraw()
 
+proc fetchSimilar(name: string) =
+  similarPackages = @[]
+  fetchJson(cstring("/api/v1/packages/" & name & "/similar")) do (data: JsonNode):
+    for item in data:
+      similarPackages.add(SimilarPkg(
+        name: $item["name"].getStr(),
+        jaccard: parseFloat($item["jaccard"].getFNum())
+      ))
+    redraw()
+
 proc fetchStats() =
   loading = true
   errorMessage = ""
@@ -493,6 +509,7 @@ proc fetchDetail(name: string) =
     fetchValidations(name)
     fetchReadme(name)
     fetchDownloads(name)
+    fetchSimilar(name)
     redraw(),
     "Failed to load package details. Please try again."
   )
@@ -879,6 +896,13 @@ proc renderPackage(): VNode =
               class = "download-link",
               download = ""
             ): text "Download"
+      if similarPackages.len > 0:
+        section(class = "similar-packages"):
+          h2: text "Similar Packages"
+          for sim in similarPackages:
+            tdiv(class = "similar-row"):
+              a(href = cstring("/package/" & sim.name), class = "similar-name"): text sim.name
+              span(class = "similar-score"): text (formatFloat(sim.jaccard * 100, ffDecimal, 0) & "%")
       if readmeContent != "":
         section(class = "readme"):
           h2: text "README"

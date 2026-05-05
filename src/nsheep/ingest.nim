@@ -3,15 +3,41 @@
 ## Pure logic, no HTTP, no side effects except explicit storage calls
 ##
 
-import std/[times, tables, strutils, options]
+import std/[times, tables, strutils, options, sequtils]
 import chronicles
 import nsheep/[types, storage, vcs, tarstrip], puppy
+import minhash
 
 proc storeVersionReadme(store: DbStorage, pkgName: string, ver: SemVer, tarballBytes: seq[byte]) =
   let readme = extractReadmeFromTarball(tarballBytes)
   if readme.content.len > 0:
     let versionStr = $ver.major & "." & $ver.minor & "." & $ver.patch
     storeReadme(store, pkgName, versionStr, readme.filename, readme.content)
+
+proc computeMinHash(text: string): (seq[uint32], int) =
+  ## Compute MinHash signature and return (fingerprint, textLength)
+  if text.len == 0: return (@[], 0)
+  const ShingleSize = 3
+  const NumSeeds = 128
+  proc tokenize(s: string): seq[string] =
+    if s.len < ShingleSize: return @[s]
+    result = newSeq[string](s.len - ShingleSize + 1)
+    for i in 0 .. s.len - ShingleSize:
+      result[i] = s[i ..< i + ShingleSize]
+  var hasher = initMinHasher[uint32](NumSeeds, tokenize)
+  result = (hasher.fingerprint(text), text.len)
+
+proc storeVersionHashIfSmall(store: DbStorage, pkgName: string, ver: SemVer, tarballBytes: seq[byte]) =
+  ## Compute and store MinHash signature for small tarballs (< 500KB)
+  const MaxTarballSize = 500_000
+  if tarballBytes.len >= MaxTarballSize:
+    return
+  let text = extractTextFromTarball(tarballBytes)
+  if text.len == 0:
+    return
+  let (fp, textLen) = computeMinHash(text)
+  if fp.len > 0:
+    storeVersionHash(store, pkgName, ver, fp, textLen)
 
 # --- Errors ---
 
@@ -206,6 +232,10 @@ proc ingest*(
         storeReadme(store, pkgName, "#head", headReadme.filename, headReadme.content)
 
       storeVersion(store, pkgName, headSemVer, tarballBytes, checksum, rel.publishedAt, headSha)
+
+      # Compute and store similarity hash for small tarballs
+      storeVersionHashIfSmall(store, pkgName, headSemVer, tarballBytes)
+
       versions.add(PackageVersion(
         version: headSemVer,
         headCommit: headSha,

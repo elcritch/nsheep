@@ -130,6 +130,96 @@ proc extractReadmeFromTarball*(input: seq[byte], maxSize: int = 1_048_576): Read
 
     pos += BlockSize + dataBlocks
 
+proc extractTextFromTarball*(input: seq[byte], maxTotalSize: int = 200_000): string =
+  ## Extract text content from a tarball for similarity hashing.
+  ## Includes: .nimble files, README files, and .nim source files.
+  ## Excludes: tests/, docs/, deps/, examples/, CI configs, build files, etc.
+  ## Returns concatenated lowercase text, truncated to maxTotalSize.
+
+  if input.len == 0:
+    return ""
+
+  var uncompressed: string
+  try:
+    uncompressed = uncompress(cast[string](input), dfGzip)
+  except:
+    return ""
+
+  if uncompressed.len == 0:
+    return ""
+
+  var pos = 0
+  var totalLen = 0
+  var parts: seq[string]
+
+  while pos < uncompressed.len:
+    if pos + BlockSize > uncompressed.len:
+      break
+
+    # Check for end-of-archive
+    var allZero = true
+    for i in 0..<BlockSize:
+      if uncompressed[pos + i] != '\0':
+        allZero = false
+        break
+    if allZero:
+      pos += BlockSize
+      continue
+
+    let size = parseTarOct(uncompressed.toOpenArray(pos + 124, pos + 135))
+    let typeflag = uncompressed[pos + 156]
+
+    var path = $cast[cstring](addr uncompressed[pos])
+    let magic = cast[cstring](addr uncompressed[pos + 257])
+    if ($magic).startsWith("ustar"):
+      let prefix = $cast[cstring](addr uncompressed[pos + 345])
+      if prefix.len > 0:
+        path = prefix / path
+    if path.startsWith("./"):
+      path = path[2..^1]
+
+    let dataBlocks = ((size + BlockSize - 1) div BlockSize) * BlockSize
+
+    if typeflag == '\0' or typeflag == '0':
+      let basename = if '/' in path: path.split('/')[^1] else: path
+      let lowerPath = path.toLowerAscii()
+
+      # Determine if we want this file
+      var keep = false
+      if lowerPath.endsWith(".nimble"):
+        keep = true
+      elif basename.len > 0 and basename.toLowerAscii().startsWith("readme"):
+        keep = true
+      elif lowerPath.endsWith(".nim"):
+        # Skip if in excluded directories, but keep nimble (handled above)
+        if not shouldExclude(path):
+          keep = true
+
+      if keep and size > 0 and pos + BlockSize + size <= uncompressed.len:
+        let content = uncompressed[pos + BlockSize ..< pos + BlockSize + size]
+        # Only include text-ish content (skip binary files)
+        var isText = true
+        var checkLen = min(content.len, 512)
+        for i in 0..<checkLen:
+          let c = content[i]
+          if c == '\0':
+            isText = false
+            break
+        if isText:
+          let lower = content.toLowerAscii()
+          parts.add(lower)
+          totalLen += lower.len
+          if totalLen >= maxTotalSize:
+            break
+
+    pos += BlockSize + dataBlocks
+
+  if parts.len == 0:
+    return ""
+  result = parts.join(" ")
+  if result.len > maxTotalSize:
+    result = result[0..<maxTotalSize]
+
 proc stripTarballBytes*(
   input: seq[byte],
   excludedPrefixes: openArray[string] = DefaultExcludedPrefixes

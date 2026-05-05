@@ -88,6 +88,19 @@ CREATE TABLE IF NOT EXISTS failed_packages (
     url TEXT
 );
 
+-- Pre-computed MinHash signatures per version (currently only head versions)
+CREATE TABLE IF NOT EXISTS version_hashes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    package_id INTEGER NOT NULL,
+    version_id INTEGER NOT NULL UNIQUE,
+    hash BLOB NOT NULL,
+    text_length INTEGER NOT NULL,
+    algo_version INTEGER DEFAULT 1,
+    created_at INTEGER DEFAULT (unixepoch()),
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE,
+    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_packages_name ON packages(name);
 CREATE INDEX IF NOT EXISTS idx_versions_package ON versions(package_id);
@@ -909,3 +922,75 @@ proc loadReadme*(s: DbStorage, pkgName: string, version: string): ReadmeData =
     raise newException(NotFoundError, "readme not found: " & pkgName & "@" & version)
   let r = row.get()
   result = ReadmeData(filename: r[0].strVal, content: r[1].strVal)
+
+# --- Version Hash Operations ---
+
+type VersionHash* = object
+  pkgName*: string
+  ver*: SemVer
+  hash*: seq[uint32]
+  textLength*: int
+
+proc storeVersionHash*(s: DbStorage, pkgName: string, ver: SemVer, hash: seq[uint32], textLength: int) =
+  ## Store or update a MinHash signature for a specific version
+  let pkgRow = s.db.one("SELECT id FROM packages WHERE name = ?", pkgName)
+  if pkgRow.isNone:
+    raise newException(NotFoundError, "package not found: " & pkgName)
+  let pkgId = pkgRow.get()[0].intVal
+
+  let verRow = s.db.one("""
+    SELECT id FROM versions
+    WHERE package_id = ? AND major = ? AND minor = ? AND patch = ?
+  """, pkgId, ver.major.int64, ver.minor.int64, ver.patch.int64)
+  if verRow.isNone:
+    raise newException(NotFoundError, "version not found: " & pkgName & " v" & $ver)
+  let verId = verRow.get()[0].intVal
+
+  # Serialize seq[uint32] to seq[byte] (little-endian)
+  var blob = newSeq[byte](hash.len * 4)
+  for i, v in hash:
+    blob[i * 4 + 0] = byte((v shr 0) and 0xFF)
+    blob[i * 4 + 1] = byte((v shr 8) and 0xFF)
+    blob[i * 4 + 2] = byte((v shr 16) and 0xFF)
+    blob[i * 4 + 3] = byte((v shr 24) and 0xFF)
+
+  s.db.exec("""
+    INSERT INTO version_hashes (package_id, version_id, hash, text_length, algo_version, created_at)
+    VALUES (?, ?, ?, ?, 1, unixepoch())
+    ON CONFLICT(version_id) DO UPDATE SET
+      hash = excluded.hash,
+      text_length = excluded.text_length,
+      algo_version = excluded.algo_version,
+      created_at = unixepoch()
+  """, pkgId, verId, blob, textLength.int64)
+
+proc getVersionHashes*(s: DbStorage): seq[VersionHash] =
+  ## Load all version hashes (currently only head versions are populated)
+  for row in s.db.all("""
+    SELECT p.name, v.major, v.minor, v.patch, h.hash, h.text_length
+    FROM version_hashes h
+    JOIN versions v ON v.id = h.version_id
+    JOIN packages p ON p.id = h.package_id
+  """):
+    # Deserialize BLOB to seq[uint32] (little-endian)
+    var hashSeq: seq[uint32]
+    if row[4].kind == sqliteBlob:
+      let blob = row[4].blobVal
+      let n = blob.len div 4
+      hashSeq = newSeq[uint32](n)
+      for i in 0..<n:
+        hashSeq[i] = uint32(blob[i * 4 + 0]) or
+                     (uint32(blob[i * 4 + 1]) shl 8) or
+                     (uint32(blob[i * 4 + 2]) shl 16) or
+                     (uint32(blob[i * 4 + 3]) shl 24)
+
+    result.add(VersionHash(
+      pkgName: row[0].strVal,
+      ver: SemVer(
+        major: row[1].intVal.int,
+        minor: row[2].intVal.int,
+        patch: row[3].intVal.int
+      ),
+      hash: hashSeq,
+      textLength: row[5].intVal.int
+    ))

@@ -16,6 +16,7 @@ requires "chronicles >= 0.10.0"
 requires "yaml >= 2.0.0"
 requires "tiny_sqlite >= 0.2.0"
 requires "zippy >= 0.10.0"
+requires "https://github.com/Nim-NLP/minhash#master"
 
 task frontend, "Build frontend assets":
   exec "nimble install karax -y"

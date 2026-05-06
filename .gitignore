@@ -47,3 +47,4 @@ nimble.develop
 nimbledeps
 public/
 frontend/app.js
+config.nims

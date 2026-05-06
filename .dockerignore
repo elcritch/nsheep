@@ -7,3 +7,10 @@ Makefile
 data/
 *.tar.gz
 nimcache/
+nimble.paths
+nsheep
+nsheep-fetcher
+public/
+scripts/
+tests/
+.github/

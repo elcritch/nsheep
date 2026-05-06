@@ -6,17 +6,14 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache git openssl-dev pcre-dev nodejs npm
 
-# Copy project files
-COPY nsheep.nimble .
-COPY config.nims .
-COPY src/ ./src/
-COPY frontend/ ./frontend/
+# Copy project files (.dockerignore excludes local artifacts like nimble.paths, binaries, data/)
+COPY . .
 
-# Install dependencies (generates nimble.paths and config.nims)
+# Install dependencies (generates nimble.paths inside the container)
 RUN nimble install -y --depsOnly
 
 # Build binaries
-RUN nimble build -d:release -d:strip
+RUN nimble build -d:release -d:strip --path:src
 
 # Build frontend
 RUN nim js -d:release -o:public/app.js frontend/app.nim

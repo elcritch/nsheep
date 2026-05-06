@@ -70,6 +70,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/nsheep
+            sudo chown nsheep:nsheep nsheep nsheep-fetcher
             chmod +x nsheep nsheep-fetcher
             sudo rc-service nsheep restart
             sudo rc-service nsheep-fetcher restart

@@ -12,10 +12,10 @@ COPY . .
 # Install dependencies
 RUN nimble install -y --depsOnly
 
-# Install dependencies
-RUN nimble install -y --depsOnly
+# Install dependencies and the package itself so nimble registers all paths
+RUN nimble install -y
 
-# Build binaries (nimble finds deps via its default search paths)
+# Build binaries
 RUN nimble build -d:release -d:strip
 
 # Build frontend

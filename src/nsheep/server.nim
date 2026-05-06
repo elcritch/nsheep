@@ -477,6 +477,44 @@ proc handlePackagesJsonPatch(state: ptr ServerState): RequestHandler =
       error "Failed to generate packages.json patch", error = e.msg
       sendError(request, 500, "patch_error", "failed to generate patch: " & e.msg)
 
+proc serveTarball(request: Request, tarPath, filename: string) =
+  ## Serve a tarball with ETag-based cache validation.
+  ## Uses file modification time as ETag (fast, no full-file hash needed).
+  let mtime = try:
+    getLastModificationTime(tarPath)
+  except CatchableError:
+    sendError(request, 500, "read_error", "cannot stat tarball")
+    return
+
+  let etag = '"' & $mtime.toUnix & '"'
+
+  # Check If-None-Match for 304
+  if "If-None-Match" in request.headers:
+    if request.headers["If-None-Match"] == etag:
+      var headers = emptyHttpHeaders()
+      headers["ETag"] = etag
+      headers["Access-Control-Allow-Origin"] = "*"
+      addSecurityHeaders(headers)
+      request.respond(304, headers, "")
+      return
+
+  # Read file
+  let strData = try:
+    readFile(tarPath)
+  except CatchableError as e:
+    sendError(request, 500, "read_error", "cannot read tarball: " & e.msg)
+    return
+
+  # Serve
+  var headers = emptyHttpHeaders()
+  headers["Content-Type"] = "application/gzip"
+  headers["Content-Disposition"] = "attachment; filename=\"" & filename & "\""
+  headers["ETag"] = etag
+  headers["Cache-Control"] = "public, must-revalidate"
+  headers["Access-Control-Allow-Origin"] = "*"
+  addSecurityHeaders(headers)
+  request.respond(200, headers, strData)
+
 proc handleDownload(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let store = openStore(state)
@@ -517,22 +555,7 @@ proc handleDownload(state: ptr ServerState): RequestHandler =
       sendError(request, 500, "storage_error", e.msg)
       return
 
-    # Read file directly as string (avoid seq[byte] -> string copy)
-    let strData = try:
-      readFile(tarPath)
-    except CatchableError as e:
-      sendError(request, 500, "read_error", "cannot read tarball: " & e.msg)
-      return
-
-    # Serve with appropriate headers
-    var headers = emptyHttpHeaders()
-    headers["Content-Type"] = "application/gzip"
-    headers["Content-Disposition"] = "attachment; filename=\"" & $name & "-" & versionStr & ".tar.gz\""
-    headers["Cache-Control"] = "public, max-age=31536000, immutable" # 1 year
-    headers["Access-Control-Allow-Origin"] = "*"
-    addSecurityHeaders(headers)
-
-    request.respond(200, headers, strData)
+    serveTarball(request, tarPath, $name & "-" & versionStr & ".tar.gz")
 
 proc handleDownloadLatest(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
@@ -556,22 +579,7 @@ proc handleDownloadLatest(state: ptr ServerState): RequestHandler =
       sendError(request, 500, "storage_error", e.msg)
       return
 
-    # Read file directly as string (avoid seq[byte] -> string copy)
-    let strData = try:
-      readFile(tarPath)
-    except CatchableError as e:
-      sendError(request, 500, "read_error", "cannot read tarball: " & e.msg)
-      return
-
-    # Serve with appropriate headers
-    var headers = emptyHttpHeaders()
-    headers["Content-Type"] = "application/gzip"
-    headers["Content-Disposition"] = "attachment; filename=\"" & $nameStr & "-#head.tar.gz\""
-    headers["Cache-Control"] = "public, max-age=300" # 5 min cache for head (it changes)
-    headers["Access-Control-Allow-Origin"] = "*"
-    addSecurityHeaders(headers)
-
-    request.respond(200, headers, strData)
+    serveTarball(request, tarPath, $nameStr & "-#head.tar.gz")
 
 # --- Static Files ---
 

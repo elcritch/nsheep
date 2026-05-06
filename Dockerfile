@@ -14,6 +14,7 @@ RUN nimble install -y --depsOnly
 
 # Generate nimble.paths so the compiler can find all packages
 RUN nimble setup
+RUN cat nimble.paths
 
 # Build binaries
 RUN nimble build -d:release -d:strip

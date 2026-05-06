@@ -7,21 +7,12 @@
 
 import std/[os, strutils, sequtils]
 import tiny_sqlite
-import minhash
 import nsheep/[storage, tarstrip, types]
 
 const
   DbPath = "data/nsheep.db"
   TarballDir = "data/tarballs"
   MaxTarballSize = 500_000
-  NumSeeds = 128
-  ShingleSize = 3
-
-proc tokenize(s: string): seq[string] =
-  if s.len < ShingleSize: return @[s]
-  result = newSeq[string](s.len - ShingleSize + 1)
-  for i in 0 .. s.len - ShingleSize:
-    result[i] = s[i ..< i + ShingleSize]
 
 proc main() =
   let db = openDatabase(DbPath)
@@ -54,8 +45,6 @@ proc main() =
   var skipped = 0
   var failed = 0
 
-  var hasher = initMinHasher[uint32](NumSeeds, tokenize)
-
   for h in heads:
     let fullPath = h.tarPath
     if not fileExists(fullPath):
@@ -78,13 +67,12 @@ proc main() =
       failed.inc
       continue
 
-    let text = extractTextFromTarball(bytes)
-    if text.len == 0:
+    let (fp, textLen) = extractMinHashFromTarball(bytes)
+    if fp.len == 0:
       skipped.inc
       continue
 
-    let fp = hasher.fingerprint(text)
-    storeVersionHash(store, h.pkgName, h.ver, fp, text.len)
+    storeVersionHash(store, h.pkgName, h.ver, fp, textLen)
     processed.inc
 
     if processed mod 50 == 0:

@@ -5,6 +5,22 @@
 
 import std/[os, strutils]
 import zippy
+import minhash/murmur3
+
+const
+  NumMinHashSeeds = 128
+  MinHashShingleSize = 3
+
+  MinHashSeeds = block:
+    var seeds: array[NumMinHashSeeds, uint32]
+    var state = 123456789u64
+    for i in 0..<NumMinHashSeeds:
+      state += 0x9e3779b97f4a7c15u64
+      var z = state
+      z = (z xor (z shr 30)) * 0xbf58476d1ce4e5b9u64
+      z = (z xor (z shr 27)) * 0x94d049bb133111ebu64
+      seeds[i] = uint32(z xor (z shr 31))
+    seeds
 
 const
   BlockSize = 512
@@ -149,8 +165,7 @@ proc extractTextFromTarball*(input: seq[byte], maxTotalSize: int = 200_000): str
     return ""
 
   var pos = 0
-  var totalLen = 0
-  var parts: seq[string]
+  result = ""
 
   while pos < uncompressed.len:
     if pos + BlockSize > uncompressed.len:
@@ -197,28 +212,105 @@ proc extractTextFromTarball*(input: seq[byte], maxTotalSize: int = 200_000): str
 
       if keep and size > 0 and pos + BlockSize + size <= uncompressed.len:
         let content = uncompressed[pos + BlockSize ..< pos + BlockSize + size]
-        # Only include text-ish content (skip binary files)
-        var isText = true
-        var checkLen = min(content.len, 512)
-        for i in 0..<checkLen:
-          let c = content[i]
-          if c == '\0':
-            isText = false
-            break
-        if isText:
-          let lower = content.toLowerAscii()
-          parts.add(lower)
-          totalLen += lower.len
-          if totalLen >= maxTotalSize:
-            break
+        if result.len > 0:
+          result.add(" ")
+        result.add(content)
+        if result.len >= maxTotalSize:
+          break
 
     pos += BlockSize + dataBlocks
 
-  if parts.len == 0:
-    return ""
-  result = parts.join(" ")
   if result.len > maxTotalSize:
     result = result[0..<maxTotalSize]
+
+proc extractMinHashFromTarball*(input: seq[byte], maxTotalBytes: int = 200_000): (seq[uint32], int) =
+  ## Extract MinHash fingerprint directly from tarball without building intermediate text string.
+  ## Returns (fingerprint, totalBytesProcessed).
+  ## Processes files independently and merges fingerprints element-wise (min).
+
+  if input.len == 0:
+    return (@[], 0)
+
+  var uncompressed: string
+  try:
+    uncompressed = uncompress(cast[string](input), dfGzip)
+  except:
+    return (@[], 0)
+
+  if uncompressed.len == 0:
+    return (@[], 0)
+
+  var fp = newSeq[uint32](NumMinHashSeeds)
+  for i in 0..<NumMinHashSeeds:
+    fp[i] = high(uint32)
+
+  var pos = 0
+  var totalBytes = 0
+  var tmp: array[2, uint32]
+
+  while pos < uncompressed.len:
+    if pos + BlockSize > uncompressed.len:
+      break
+
+    # Check for end-of-archive
+    var allZero = true
+    for i in 0..<BlockSize:
+      if uncompressed[pos + i] != '\0':
+        allZero = false
+        break
+    if allZero:
+      pos += BlockSize
+      continue
+
+    let size = parseTarOct(uncompressed.toOpenArray(pos + 124, pos + 135))
+    let typeflag = uncompressed[pos + 156]
+
+    var path = $cast[cstring](addr uncompressed[pos])
+    let magic = cast[cstring](addr uncompressed[pos + 257])
+    if ($magic).startsWith("ustar"):
+      let prefix = $cast[cstring](addr uncompressed[pos + 345])
+      if prefix.len > 0:
+        path = prefix / path
+    if path.startsWith("./"):
+      path = path[2..^1]
+
+    let dataBlocks = ((size + BlockSize - 1) div BlockSize) * BlockSize
+
+    if typeflag == '\0' or typeflag == '0':
+      let basename = if '/' in path: path.split('/')[^1] else: path
+      let lowerPath = path.toLowerAscii()
+
+      # Determine if we want this file
+      var keep = false
+      if lowerPath.endsWith(".nimble"):
+        keep = true
+      elif basename.len > 0 and basename.toLowerAscii().startsWith("readme"):
+        keep = true
+      elif lowerPath.endsWith(".nim"):
+        if not shouldExclude(path):
+          keep = true
+
+      if keep and size > 0 and pos + BlockSize + size <= uncompressed.len:
+        let contentStart = pos + BlockSize
+        let contentLen = size
+        if totalBytes >= maxTotalBytes:
+          break
+        let remaining = maxTotalBytes - totalBytes
+        let processLen = min(contentLen, remaining)
+        if processLen >= MinHashShingleSize:
+          for i in 0..(processLen - MinHashShingleSize):
+            let p = cast[cstring](unsafeAddr uncompressed[contentStart + i])
+            for s in 0..<NumMinHashSeeds:
+              MurmurHash3_x86_32(p, MinHashShingleSize, MinHashSeeds[s], tmp)
+              if tmp[0] < fp[s]:
+                fp[s] = tmp[0]
+        totalBytes += processLen
+        if totalBytes >= maxTotalBytes:
+          break
+
+    pos += BlockSize + dataBlocks
+
+  result = (fp, totalBytes)
 
 proc stripTarballBytes*(
   input: seq[byte],

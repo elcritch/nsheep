@@ -9,13 +9,13 @@
 
 import std/[strutils, sequtils, tables, sets, os, json, algorithm]
 import tiny_sqlite
-import minhash
-import nsheep/storage
+import nsheep/[storage, similarity]
 
 const
   DbPath = "data/nsheep.db"
   NumSeeds = 128
   NumBands = 16
+  BandWidth = NumSeeds div NumBands
   MinJaccard = 0.35
 
 type
@@ -42,25 +42,17 @@ proc main() =
     echo "Not enough hashes to compare"
     return
 
-  # Build LSH from pre-computed hashes
-  # Dummy hasher: num_seeds must match stored hashes, tokenizer is unused
-  var dummyHasher = initMinHasher[uint32](NumSeeds, proc(s: string): seq[string] = @[])
-  var lsh = initLocalitySensitive(dummyHasher, num_bands = NumBands)
-
-  for h in hashes:
-    lsh.add(h.hash, h.pkgName)
-
-  let dupes = lsh.getDuplicates(min_jaccard = MinJaccard)
+  let lsh = buildLSH(hashes, NumBands, BandWidth)
+  let candidates = lshCandidates(lsh)
+  echo "LSH candidates: ", candidates.len
 
   var pairs: seq[SimPair]
-  for p in dupes:
-    let (a, b) = if p.a < p.b: (p.a, p.b) else: (p.b, p.a)
-    # Compute exact Jaccard on the stored fingerprints
-    let fpA = hashes.filterIt(it.pkgName == a)[0].hash
-    let fpB = hashes.filterIt(it.pkgName == b)[0].hash
-    let j = dummyHasher.jaccard(fpA, fpB)
+  for pair in candidates:
+    let fpA = hashes.filterIt(it.pkgName == pair.a)[0].hash
+    let fpB = hashes.filterIt(it.pkgName == pair.b)[0].hash
+    let j = jaccardEstimate(fpA, fpB)
     if j >= MinJaccard:
-      pairs.add(SimPair(a: a, b: b, jaccard: j))
+      pairs.add(SimPair(a: pair.a, b: pair.b, jaccard: j))
 
   # Sort by similarity descending
   pairs.sort(proc(x, y: SimPair): int =

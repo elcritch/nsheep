@@ -6,8 +6,7 @@
 import std/[json, strutils, options, times, os, osproc, hashes, sets, tables, algorithm, sequtils]
 import mummy, mummy/routers
 import chronicles
-import nsheep/[types, storage, config]
-import minhash
+import nsheep/[types, storage, config, similarity]
 from puppy import get
 
 # --- State ---
@@ -629,28 +628,23 @@ proc initSimilarities*(state: ptr ServerState) =
 
   const NumSeeds = 128
   const NumBands = 16
+  const BandWidth = NumSeeds div NumBands
   const MinJaccard = 0.35
 
-  var dummyHasher = initMinHasher[uint32](NumSeeds, proc(s: string): seq[string] = @[])
-  var lsh = initLocalitySensitive(dummyHasher, num_bands = NumBands)
+  let lsh = buildLSH(hashes, NumBands, BandWidth)
+  let candidates = lshCandidates(lsh)
+  info "LSH found candidate pairs", candidates = candidates.len
 
-  for h in hashes:
-    if h.hash.len > 0:
-      lsh.add(h.hash, h.pkgName)
-
-  let dupes = lsh.getDuplicates(min_jaccard = MinJaccard)
-  info "LSH found candidate pairs", candidates = dupes.len
   var passed = 0
-  for p in dupes:
-    let (a, b) = if p.a < p.b: (p.a, p.b) else: (p.b, p.a)
-    let fpA = hashes.filterIt(it.pkgName == a)[0].hash
-    let fpB = hashes.filterIt(it.pkgName == b)[0].hash
-    let j = dummyHasher.jaccard(fpA, fpB)
+  for pair in candidates:
+    let fpA = hashes.filterIt(it.pkgName == pair.a)[0].hash
+    let fpB = hashes.filterIt(it.pkgName == pair.b)[0].hash
+    let j = jaccardEstimate(fpA, fpB)
     if j < MinJaccard:
       continue
     inc passed
-    state.similarities.mgetOrPut(a, @[]).add((name: b, jaccard: j))
-    state.similarities.mgetOrPut(b, @[]).add((name: a, jaccard: j))
+    state.similarities.mgetOrPut(pair.a, @[]).add((name: pair.b, jaccard: j))
+    state.similarities.mgetOrPut(pair.b, @[]).add((name: pair.a, jaccard: j))
 
   # Sort each list by jaccard descending
   for name, entries in state.similarities.mpairs:

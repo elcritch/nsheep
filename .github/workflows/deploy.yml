@@ -18,22 +18,10 @@ jobs:
         with:
           nim-version: '2.2.x'
 
-      - name: Cache Nimble packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nimble
-          key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
-          restore-keys: |
-            ${{ runner.os }}-nimble-
-
-      - name: Install dependencies
-        run: nimble install -y --depsOnly
-
-      - name: Build release binaries
-        run: nimble build -d:release -d:strip --passC:-march=x86-64
-
       - name: Build frontend
-        run: nim js -d:release -o:public/app.js frontend/app.nim
+        run: |
+          nimble install karax -y
+          nim js -d:release -o:public/app.js frontend/app.nim
 
       - name: Verify SSH secrets exist
         run: |
@@ -41,16 +29,6 @@ jobs:
           if [ -z "${{ secrets.SSH_USER }}" ]; then echo "SSH_USER is empty"; exit 1; fi
           if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then echo "SSH_PRIVATE_KEY is empty"; exit 1; fi
           echo "All SSH secrets are set"
-
-      - name: Upload binaries
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "nsheep,nsheep-fetcher"
-          target: "/opt/nsheep/"
-          strip_components: 0
 
       - name: Upload static files
         uses: appleboy/scp-action@v1
@@ -62,16 +40,18 @@ jobs:
           target: "/opt/nsheep/public/"
           strip_components: 1
 
-      - name: Restart services
+      - name: Build and restart on VPS
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 3m
           script: |
             cd /opt/nsheep
-            sudo chown nsheep:nsheep nsheep nsheep-fetcher
-            chmod +x nsheep nsheep-fetcher
+            git pull
+            nim c -d:release -d:strip --passC:-march=x86-64 -o:nsheep src/nsheep.nim
+            nim c -d:release -d:strip --passC:-march=x86-64 -o:nsheep-fetcher src/nsheep/fetcher.nim
             sudo rc-service nsheep restart
             sudo rc-service nsheep-fetcher restart
             sleep 2

@@ -592,7 +592,8 @@ proc initSimilarities*(state: ptr ServerState) =
       lsh.add(h.hash, h.pkgName)
 
   let dupes = lsh.getDuplicates(min_jaccard = MinJaccard)
-
+  info "LSH found candidate pairs", candidates = dupes.len
+  var passed = 0
   for p in dupes:
     let (a, b) = if p.a < p.b: (p.a, p.b) else: (p.b, p.a)
     let fpA = hashes.filterIt(it.pkgName == a)[0].hash
@@ -600,6 +601,7 @@ proc initSimilarities*(state: ptr ServerState) =
     let j = dummyHasher.jaccard(fpA, fpB)
     if j < MinJaccard:
       continue
+    inc passed
     state.similarities.mgetOrPut(a, @[]).add((name: b, jaccard: j))
     state.similarities.mgetOrPut(b, @[]).add((name: a, jaccard: j))
 
@@ -611,6 +613,13 @@ proc initSimilarities*(state: ptr ServerState) =
       else: 0
     )
 
+  info "LSH passed exact jaccard filter", pairs = passed
+  # Debug: print first 5 packages with similarities
+  var first5: seq[string] = @[]
+  for name, entries in state.similarities:
+    if first5.len < 5:
+      first5.add(name & " (" & $entries.len & ")")
+  info "Sample packages with similar", samples = first5.join(", ")
   info "Computed package similarities", count = state.similarities.len
 
 proc handleGetSimilarPackages(state: ptr ServerState): RequestHandler =

@@ -387,10 +387,11 @@ proc fetchSimilar(name: string) =
   similarPackages = @[]
   fetchJson(cstring("/api/v1/packages/" & name & "/similar")) do (data: JsonNode):
     for item in data:
-      similarPackages.add(SimilarPkg(
-        name: $item["name"].getStr(),
-        jaccard: parseFloat($item["jaccard"].getFNum())
-      ))
+      if item.hasField("name") and item.hasField("jaccard"):
+        similarPackages.add(SimilarPkg(
+          name: $item["name"].getStr(),
+          jaccard: float(item["jaccard"].getNum())
+        ))
     redraw()
 
 proc fetchStats() =

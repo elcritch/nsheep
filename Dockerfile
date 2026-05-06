@@ -13,7 +13,7 @@ COPY . .
 RUN nimble install -y --depsOnly
 
 # Build binaries
-RUN nimble build -d:release -d:strip --path:src
+RUN nimble build -d:release -d:strip
 
 # Build frontend
 RUN nim js -d:release -o:public/app.js frontend/app.nim

@@ -9,8 +9,11 @@ RUN apk add --no-cache git openssl-dev pcre-dev nodejs npm
 # Copy project files (.dockerignore excludes local artifacts like nimble.paths, binaries, data/)
 COPY . .
 
-# Install dependencies (generates nimble.paths inside the container)
+# Install dependencies
 RUN nimble install -y --depsOnly
+
+# Generate nimble.paths so the compiler can find all packages
+RUN nimble setup
 
 # Build binaries
 RUN nimble build -d:release -d:strip

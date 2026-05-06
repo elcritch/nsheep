@@ -15,9 +15,8 @@ RUN nimble install -y --depsOnly
 # Build binaries (explicit --path:src works around nimble path resolution in this container)
 RUN nimble build -d:release -d:strip --path:src
 
-# Build frontend
-RUN nim js -d:release -o:public/app.js frontend/app.nim
-RUN cp frontend/index.html public/ && cp frontend/app.css public/
+# Build frontend (nimble frontend task installs karax and copies assets)
+RUN nimble frontend
 
 # Runtime stage
 FROM alpine:latest

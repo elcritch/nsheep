@@ -18,6 +18,9 @@ jobs:
         with:
           nim-version: '2.2.x'
 
+      - name: Install slim
+        run: nimble install slim -y
+
       - name: Build frontend
         run: |
           slim install karax -y

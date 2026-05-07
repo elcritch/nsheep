@@ -5,7 +5,7 @@ import strutils, jsffi, algorithm, uri
 
 type
   View = enum
-    vHome, vPackage, vHelp, vStats, vNotFound
+    vHome, vPackage, vHelp, vStats, vAbout, vNotFound
 
   SortOrder = enum
     soUpdatedDesc, soPublishedDesc
@@ -156,6 +156,8 @@ proc parsePath(): View =
     result = vHelp
   elif p == "/stats":
     result = vStats
+  elif p == "/about":
+    result = vAbout
   else:
     result = vNotFound
 
@@ -219,6 +221,9 @@ proc navigateTo(path: cstring) =
   of vHelp:
     loading = false
     redraw()
+  of vAbout:
+    loading = false
+    redraw()
   of vNotFound:
     loading = false
     redraw()
@@ -236,6 +241,9 @@ proc onPopState(ev: Event) =
   of vStats:
     fetchStats()
   of vHelp:
+    loading = false
+    redraw()
+  of vAbout:
     loading = false
     redraw()
   of vNotFound:
@@ -978,6 +986,32 @@ url = "https://nimpack.org/packages.json""""
         li: text "Set a GitHub token in cfg.yaml to increase rate limits for the background fetcher."
         li: text "Use the download endpoint directly to fetch specific versions without nimble."
 
+proc renderAbout(): VNode =
+  buildHtml(tdiv(class = "page about-page")):
+    a(href = "/", class = "back-link"): text "← All packages"
+    tdiv(class = "help-content"):
+      h1: text "About NimPack"
+      p:
+        text "NimPack is a package registry and mirror for the Nim ecosystem. Its goal is to make Nim packages more reliable to install and easier to discover — by hosting a nimble-compatible package list, stripping tarballs to essentials, verifying that tagged versions compile, and surfacing related packages through code similarity."
+
+      h2: text "What NimPack provides"
+
+      h3: text "1. Clean tarball downloads"
+      p:
+        text "When you install a package, NimPack downloads the upstream tarball and strips it before serving — removing tests, CI configs, docs, and other non-essential files. You get a smaller, faster download with only the code you actually need."
+
+      h3: text "2. Package verification"
+      p:
+        text "Tagged versions are compiled against the latest stable Nim compiler to verify they compile without errors. You can check a package's build status at a glance before installing — without having to try it yourself."
+
+      h3: text "3. Similar package discovery"
+      p:
+        text "Packages are fingerprinted using MinHash on their "
+        code: text ".nim"
+        text " source files, "
+        code: text ".nimble"
+        text " file, and README. When you view a package, NimPack suggests similar ones based on code overlap — useful for discovering alternatives or related libraries."
+
 proc renderBar(items: seq[BarItem], maxVal: int, colorClass: string): VNode =
   result = buildHtml(tdiv(class = "bar-chart")):
     for it in items:
@@ -1168,6 +1202,7 @@ proc render(): VNode =
         a(href = "/", class = "logo"): text "NimPack"
         nav(class = "header-nav"):
           a(href = "/stats", class = "nav-link"): text "Stats"
+          a(href = "/about", class = "nav-link"): text "About"
           a(href = "/help", class = "nav-link"): text "Help"
           a(href = "/llm.txt", class = "nav-link"):
             img(src = cstring"/robot.svg", alt = cstring"llm.txt", width = cstring"16", height = cstring"16")
@@ -1184,6 +1219,7 @@ proc render(): VNode =
       of vPackage: renderPackage()
       of vHelp: renderHelp()
       of vStats: renderStats()
+      of vAbout: renderAbout()
       of vNotFound: renderNotFound()
 
 # --- Helpers ---
@@ -1205,5 +1241,7 @@ of vHelp:
   discard
 of vStats:
   fetchStats()
+of vAbout:
+  discard
 of vNotFound:
   discard

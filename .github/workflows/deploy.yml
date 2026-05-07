@@ -22,6 +22,9 @@ jobs:
         run: |
           nimble install karax -y
           nim js -d:release -o:public/app.js frontend/app.nim
+          cp frontend/index.html public/
+          cp frontend/app.css public/
+          nim c -r scripts/bump_version.nim
 
       - name: Verify SSH secrets exist
         run: |

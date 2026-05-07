@@ -5,7 +5,7 @@
 
 import std/[os, strutils]
 import zippy
-import minhash/murmur3
+import minhash
 
 const
   NumMinHashSeeds = 128

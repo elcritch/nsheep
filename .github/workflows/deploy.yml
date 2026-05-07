@@ -16,7 +16,7 @@ jobs:
       - name: Setup Nim
         uses: jiro4989/setup-nim-action@v1
         with:
-          nim-version: '2.2.x'
+          nim-version: '2.2.8'
 
       - name: Install slim
         run: nimble install slim -y

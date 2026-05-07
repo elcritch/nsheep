@@ -623,12 +623,12 @@ proc setupRoutes*(router: var Router, state: ptr ServerState) =
   router.get("/health", handleHealth(state))
   router.get("/packages.json", handlePackagesJson(state))
   router.get("/api/v1/packages", handleListPackages(state))
-  router.get("/api/v1/packages/@name", handleGetPackage(state))
   router.get("/api/v1/packages/@name/similar", handleGetSimilarPackages(state))
   # Note: Ingestion is now handled automatically by background fetcher
   router.get("/api/v1/packages/@name/validations", handleValidations(state))
   router.get("/api/v1/packages/@name/readme", handleReadme(state))
   router.get("/api/v1/packages/@name/downloads", handleDownloads(state))
+  router.get("/api/v1/packages/@name", handleGetPackage(state))
   router.get("/api/v1/stats", handleStats(state))
   router.get("/packages.json.patch", handlePackagesJsonPatch(state))
   router.head("/packages.json.patch", handlePackagesJsonPatch(state))

@@ -3,8 +3,11 @@
 ## No dependency on the minhash nimble package.
 ##
 
-import std/[tables, sets, sequtils]
+import std/[tables, sets, sequtils, algorithm]
 import nsheep/[storage, types]
+
+type
+  SimilarEntry* = tuple[name: string, jaccard: float]
 
 proc jaccardEstimate*(a, b: openArray[uint32]): float =
   ## Set-based Jaccard estimate matching the original minhash library behavior.
@@ -65,3 +68,53 @@ proc lshCandidates*(lsh: seq[LSHBucket]): HashSet[tuple[a, b: string]] =
             result.incl((x, y))
           else:
             result.incl((y, x))
+
+proc findSimilarPackages*(store: DbStorage, targetName: string, threshold: float = 0.35, maxResults: int = 20): seq[SimilarEntry] =
+  ## Find similar packages to the target package on-demand.
+  ## Loads all hashes from DB and computes Jaccard similarities dynamically.
+  let allHashes = getVersionHashes(store)
+  if allHashes.len < 2:
+    return @[]
+
+  var targetSet: HashSet[uint32]
+  var sets = newTable[string, HashSet[uint32]]()
+  var foundTarget = false
+
+  for h in allHashes:
+    if h.hash.len == 0:
+      continue
+    var s = initHashSet[uint32]()
+    for x in h.hash:
+      s.incl(x)
+    sets[h.pkgName] = s
+    if h.pkgName == targetName:
+      targetSet = s
+      foundTarget = true
+
+  if not foundTarget:
+    return @[]
+
+  var results: seq[SimilarEntry] = @[]
+  for pkgName, s in sets:
+    if pkgName == targetName:
+      continue
+    var inter = 0
+    for x in targetSet:
+      if x in s:
+        inc inter
+    let uni = targetSet.len + s.len - inter
+    if uni == 0:
+      continue
+    let j = inter.float / uni.float
+    if j >= threshold:
+      results.add((name: pkgName, jaccard: j))
+
+  algorithm.sort(results, proc(x, y: SimilarEntry): int =
+    if x.jaccard > y.jaccard: -1
+    elif x.jaccard < y.jaccard: 1
+    else: 0
+  )
+
+  if results.len > maxResults:
+    results.setLen(maxResults)
+  return results

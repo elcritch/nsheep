@@ -12,11 +12,8 @@ from puppy import get
 # --- State ---
 
 type
-  SimilarEntry* = tuple[name: string, jaccard: float]
-
   ServerState* = object
     cfg*: Config
-    similarities*: TableRef[string, seq[SimilarEntry]]
 
 proc openStore(state: ptr ServerState): DbStorage =
   ## Each request gets its own DB connection — SQLite connections are NOT thread-safe.
@@ -611,62 +608,12 @@ proc serveIndex(state: ptr ServerState): RequestHandler =
 
 # --- Setup ---
 
-proc initSimilarities*(state: ptr ServerState) =
-  ## Pre-compute package similarities from version_hashes at startup
-  state.similarities = newTable[string, seq[SimilarEntry]]()
-  let store = openStore(state)
-  defer: store.close()
-
-  let hashes = try:
-    getVersionHashes(store)
-  except CatchableError:
-    warn "Failed to load version hashes for similarity computation"
-    return
-
-  if hashes.len < 2:
-    return
-
-  const NumSeeds = 128
-  const NumBands = 16
-  const BandWidth = NumSeeds div NumBands
-  const MinJaccard = 0.35
-
-  let lsh = buildLSH(hashes, NumBands, BandWidth)
-  let candidates = lshCandidates(lsh)
-  info "LSH found candidate pairs", candidates = candidates.len
-
-  var passed = 0
-  for pair in candidates:
-    let fpA = hashes.filterIt(it.pkgName == pair.a)[0].hash
-    let fpB = hashes.filterIt(it.pkgName == pair.b)[0].hash
-    let j = jaccardEstimate(fpA, fpB)
-    if j < MinJaccard:
-      continue
-    inc passed
-    state.similarities.mgetOrPut(pair.a, @[]).add((name: pair.b, jaccard: j))
-    state.similarities.mgetOrPut(pair.b, @[]).add((name: pair.a, jaccard: j))
-
-  # Sort each list by jaccard descending
-  for name, entries in state.similarities.mpairs:
-    algorithm.sort(entries, proc(x, y: SimilarEntry): int =
-      if x.jaccard > y.jaccard: -1
-      elif x.jaccard < y.jaccard: 1
-      else: 0
-    )
-
-  info "LSH passed exact jaccard filter", pairs = passed
-  # Debug: print first 5 packages with similarities
-  var first5: seq[string] = @[]
-  for name, entries in state.similarities:
-    if first5.len < 5:
-      first5.add(name & " (" & $entries.len & ")")
-  info "Sample packages with similar", samples = first5.join(", ")
-  info "Computed package similarities", count = state.similarities.len
-
 proc handleGetSimilarPackages(state: ptr ServerState): RequestHandler =
   result = proc(request: Request) =
     let name = request.pathParams["name"]
-    let entries = state.similarities.getOrDefault(name, @[])
+    let store = openStore(state)
+    defer: store.close()
+    let entries = findSimilarPackages(store, name)
     var arr = newJArray()
     for e in entries:
       arr.add(%*{"name": e.name, "jaccard": e.jaccard})
@@ -718,8 +665,7 @@ proc runServer*(cfg: Config) =
   var state: ServerState
   state.cfg = cfg
 
-  # Pre-compute similarities
-  initSimilarities(addr state)
+  # Similarities are computed on-demand per package
 
   # Setup router
   var router = Router()

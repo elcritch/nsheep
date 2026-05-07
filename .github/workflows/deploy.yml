@@ -53,10 +53,7 @@ jobs:
           script: |
             cd /opt/nsheep
             git pull
-            nimble install -y --depsOnly
-            nimble setup
-            nim c -d:release -d:strip --passC:-march=x86-64 -o:nsheep src/nsheep.nim
-            nim c -d:release -d:strip --passC:-march=x86-64 -o:nsheep-fetcher src/nsheep/fetcher.nim
+            nimble build -d:release -d:strip --passC:-march=x86-64
             sudo rc-service nsheep restart
             sudo rc-service nsheep-fetcher restart
             sleep 2

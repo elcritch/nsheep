@@ -6,7 +6,7 @@
 import std/[json, strutils, options, times, os, osproc, hashes, sets, tables, algorithm, sequtils]
 import mummy, mummy/routers
 import chronicles
-import nsheep/[types, storage, config, similarity]
+import ./[types, storage, config, similarity]
 from puppy import get
 
 # --- State ---

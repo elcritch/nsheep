@@ -6,7 +6,7 @@
 import std/[json, times, strutils, base64, os, options, osproc, tempfiles, algorithm, uri]
 import chronicles
 import puppy
-import nsheep/types
+import ./types
 
 # --- Types ---
 

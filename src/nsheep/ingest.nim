@@ -5,7 +5,7 @@
 
 import std/[times, tables, strutils, options, sequtils]
 import chronicles
-import nsheep/[types, storage, vcs, tarstrip], puppy
+import ./[types, storage, vcs, tarstrip], puppy
 proc storeVersionReadme(store: DbStorage, pkgName: string, ver: SemVer, tarballBytes: seq[byte]) =
   let readme = extractReadmeFromTarball(tarballBytes)
   if readme.content.len > 0:

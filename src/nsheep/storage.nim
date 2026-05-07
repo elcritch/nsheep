@@ -6,7 +6,7 @@
 import std/[times, os, sequtils, json, options, tables, algorithm]
 import tiny_sqlite
 import chronicles
-import nsheep/types
+import ./types
 
 # --- Errors ---
 

@@ -5,7 +5,7 @@
 
 import std/[json, strutils, options, os]
 import chronicles
-import nsheep/[storage, ingest, vcs, config, validator], puppy
+import ./[storage, ingest, vcs, config, validator], puppy
 
 const
   NimblePackagesUrl = "https://raw.githubusercontent.com/nim-lang/packages/master/packages.json"

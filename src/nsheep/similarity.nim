@@ -4,7 +4,7 @@
 ##
 
 import std/[tables, sets, sequtils, algorithm]
-import nsheep/[storage, types]
+import ./[storage, types]
 
 type
   SimilarEntry* = tuple[name: string, jaccard: float]

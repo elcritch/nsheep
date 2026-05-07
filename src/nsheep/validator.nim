@@ -5,7 +5,7 @@
 
 import std/[os, osproc, strutils, tempfiles, times, algorithm, tables]
 import chronicles
-import nsheep/[config, storage, ingest]
+import ./[config, storage, ingest]
 
 export config.ValidatorConfig
 

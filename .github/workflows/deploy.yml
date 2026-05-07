@@ -20,7 +20,7 @@ jobs:
 
       - name: Build frontend
         run: |
-          nimble install karax -y
+          slim install karax -y
           nim js -d:release -o:public/app.js frontend/app.nim
           cp frontend/index.html public/
           cp frontend/app.css public/
@@ -53,7 +53,8 @@ jobs:
           script: |
             cd /opt/nsheep
             git pull
-            nimble build -d:release -d:strip --passC:-march=x86-64
+            nimble install slim -y
+            slim build -d:release -d:strip --passC:-march=x86-64
             sudo rc-service nsheep restart
             sudo rc-service nsheep-fetcher restart
             sleep 2

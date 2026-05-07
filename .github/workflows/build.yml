@@ -25,11 +25,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nimble-
 
+      - name: Install slim
+        run: nimble install slim -y
+
       - name: Install dependencies
-        run: nimble install -y --depsOnly
+        run: slim install -y --depsOnly
 
       - name: Build release binaries
-        run: nimble build -d:release -d:strip
+        run: slim build -d:release -d:strip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -4,19 +4,20 @@ FROM nimlang/nim:2.2.0-alpine AS builder
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache git openssl-dev pcre-dev nodejs npm
+RUN apk add --no-cache git openssl-dev pcre-dev perl
 
 # Copy project files (.dockerignore excludes local artifacts)
 COPY . .
 
 # Install dependencies
-RUN nimble install -y --depsOnly
+RUN nimble install slim -y
+RUN slim install -y --depsOnly
 
-# Build binaries (explicit --path:src works around nimble path resolution in this container)
-RUN nimble build -d:release -d:strip --path:src
+# Build binaries
+RUN slim build -d:release -d:strip --path:src
 
-# Build frontend (nimble frontend task installs karax and copies assets)
-RUN nimble frontend
+# Build frontend (slim frontend task installs karax and copies assets)
+RUN slim frontend
 
 # Runtime stage
 FROM alpine:latest

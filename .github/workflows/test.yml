@@ -30,11 +30,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nimble-
 
+      - name: Install slim
+        run: nimble install slim -y
+
       - name: Install dependencies
-        run: nimble install -y --depsOnly
+        run: slim install -y --depsOnly
 
       - name: Run tests
-        run: nimble test
+        run: slim test
 
       - name: Build release binaries
-        run: nimble build -d:release
+        run: slim build -d:release

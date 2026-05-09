@@ -57,9 +57,11 @@ jobs:
             cd /opt/nsheep
             git pull
             nimble install slim -y
+            sudo rc-service nsheep stop
+            sudo rc-service nsheep-fetcher stop
             slim build -d:release -d:strip --passC:-march=x86-64
-            sudo rc-service nsheep restart
-            sudo rc-service nsheep-fetcher restart
+            sudo rc-service nsheep start
+            sudo rc-service nsheep-fetcher start
             sleep 2
             sudo rc-service nsheep status || exit 1
             sudo rc-service nsheep-fetcher status || exit 1

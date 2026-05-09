@@ -10,14 +10,13 @@ RUN apk add --no-cache git openssl-dev pcre-dev perl
 COPY . .
 
 # Install dependencies
-RUN nimble install slim -y
-RUN slim install -y --depsOnly
+RUN nimble install -y --depsOnly
 
 # Build binaries
-RUN slim build -d:release -d:strip --path:src
+RUN nimble build -d:release -d:strip --path:src
 
-# Build frontend (slim frontend task installs karax and copies assets)
-RUN slim frontend
+# Build frontend (nimble frontend task installs karax and copies assets)
+RUN nimble frontend
 
 # Runtime stage
 FROM alpine:latest

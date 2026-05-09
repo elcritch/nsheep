@@ -19,7 +19,7 @@ requires "zippy >= 0.10.0"
 requires "https://github.com/Nim-NLP/minhash#master"
 
 task frontend, "Build frontend assets":
-  exec "slim install karax -y"
+  exec "nimble install karax -y"
   exec "mkdir -p public"
   exec "nim js -d:release -o:public/app.js frontend/app.nim"
   exec "cp frontend/index.html public/"
